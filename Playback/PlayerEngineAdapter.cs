@@ -21,7 +21,7 @@ public sealed class PlayerEngineAdapter : IDisposable
 {
     private readonly PlayerVideoView _view;
     private readonly Action<string>? _log;
-    private IPlayerEngine? _engine;
+    private MpvEngine? _engine;
     private int _volume = 100;
     private float _rate = 1.0f;
     private bool _mute;
@@ -134,7 +134,7 @@ public sealed class PlayerEngineAdapter : IDisposable
         }
 
         var verbose = Environment.GetEnvironmentVariable("BILIDESK_MPV_DEBUG") == "1";
-        _engine = PlayerEngineFactory.Create(PlayerEngineKind.Mpv, new PlayerEngineOptions
+        _engine = new MpvEngine(new PlayerEngineOptions
         {
             WindowHandle = hwnd.ToInt64(),
             Hwdec = Hwdec,

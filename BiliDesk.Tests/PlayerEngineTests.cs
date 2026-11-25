@@ -49,10 +49,4 @@ public class PlayerEngineTests
         Assert.Equal(0, media.StartMs);
     }
 
-    [Fact]
-    public void 引擎可用性只对mpv有意义()
-    {
-        // 不依赖原生库是否存在, 只验证枚举分支
-        Assert.False(PlayerEngineFactory.IsAvailable(PlayerEngineKind.Vlc));
-    }
 }

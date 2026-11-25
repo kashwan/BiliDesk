@@ -2,13 +2,6 @@ using System;
 
 namespace BiliDesk.Playback;
 
-/// <summary>播放内核种类(feat/mpv-core: 最终只剩 Mpv, Vlc 仅用于迁移期对照)。</summary>
-public enum PlayerEngineKind
-{
-    Vlc = 0,
-    Mpv = 1,
-}
-
 /// <summary>播放器状态(与 LibVLC 的 VLCState 语义对齐, 但不依赖它)。</summary>
 public enum PlayerState
 {
@@ -67,9 +60,6 @@ public sealed record PlayerEngineOptions
 
     /// <summary>引擎自己的详细诊断日志(对应 mpv 的 msg-level=all=v)。</summary>
     public bool VerboseLog { get; init; }
-
-    /// <summary>音频输出模块; 空 = 引擎自选。</summary>
-    public string AudioOutput { get; init; } = "";
 
     /// <summary>引擎自己的诊断日志(转给 PlayerLog.Write 落盘)。</summary>
     public Action<string>? Log { get; init; }

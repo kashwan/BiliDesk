@@ -17,7 +17,7 @@ namespace BiliDesk.Playback;
 ///   · 没有 seek 看门狗 / 重建补偿 —— mpv 的 exact seek 直接落在目标上;
 ///   · 没有音轨自愈 —— mpv 没有 VLC 那个"seek 后音轨掉线"的竞态。
 /// </summary>
-public sealed class MpvEngine : IPlayerEngine
+public sealed class MpvEngine : IDisposable
 {
     private readonly MpvPlayer _player;
     private readonly TimeChangeThrottle _timeThrottle = new();
@@ -47,7 +47,6 @@ public sealed class MpvEngine : IPlayerEngine
             {
                 WindowId = options.WindowHandle,
                 Headless = options.Headless,
-                AudioOutput = options.AudioOutput,
                 Hwdec = options.Hwdec,
                 VerboseLog = options.VerboseLog,
                 AudioStreamSilence = options.AudioStreamSilence,
@@ -61,8 +60,6 @@ public sealed class MpvEngine : IPlayerEngine
     }
 
     public static bool IsAvailable => MpvPlayer.IsAvailable;
-
-    public PlayerEngineKind Kind => PlayerEngineKind.Mpv;
 
     public PlayerState State => _state;
 

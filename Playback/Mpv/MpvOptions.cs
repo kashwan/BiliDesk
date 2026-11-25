@@ -41,9 +41,6 @@ public sealed record MpvGlobalOptions
     /// <summary>硬解: auto-safe / no / d3d11va ...</summary>
     public string Hwdec { get; init; } = "auto-safe";
 
-    /// <summary>音频输出模块; 空 = mpv 自选(Windows 上为 wasapi)。</summary>
-    public string AudioOutput { get; init; } = "";
-
     public bool VerboseLog { get; init; }
 
     /// <summary>暂停时保持音频流(--audio-stream-silence)。</summary>
@@ -79,7 +76,7 @@ public static class MpvOptions
             // D3D12 / Vulkan 硬解要求 vo=gpu-next; 其余保持 gpu(d3d11 context)
             Pair("vo", o.Headless ? "null"
                 : (o.Hwdec is "d3d12" or "vulkan" or "vulkan-copy" ? "gpu-next" : "gpu")),
-            Pair("ao", o.Headless ? "null" : (string.IsNullOrEmpty(o.AudioOutput) ? "wasapi" : o.AudioOutput)),
+            Pair("ao", o.Headless ? "null" : "wasapi"),
             // 网络流: 开缓存, 但不要因为缓存停顿而永远停住
             Pair("cache", "yes"),
             Pair("cache-pause", "yes"),
