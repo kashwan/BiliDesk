@@ -1,6 +1,6 @@
 # libmpv 构建来源与许可
 
-播放内核使用 shinchiro 的 Windows 构建（x86-64-v3 / AVX2 版）。
+播放内核使用 shinchiro 的 Windows 构建（x86-64-v3 / AVX2 版）。下表是本地源码构建的参考版本；发布工作流每次都会检查并使用 shinchiro 最新 Release 的 v3 归档。
 
 | 项 | 值 |
 | --- | --- |

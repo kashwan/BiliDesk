@@ -5,7 +5,7 @@ BiliDesk 第三方组件与许可说明
 
 1. BiliDesk
    许可: GNU General Public License v3.0 (见同目录 LICENSE.txt)
-   源码: https://github.com/ABING1111/BiliDesk
+   源码: https://github.com/kashwan/BiliDesk/tree/restructure-mpv-core
 
 2. mpv / libmpv
    文件: libmpv\win-x64\libmpv-2.dll

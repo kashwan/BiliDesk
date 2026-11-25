@@ -10,12 +10,12 @@
 
 <br>
 
-[![Release](https://img.shields.io/github/v/release/ABING1111/BiliDesk?style=flat-square)](https://github.com/ABING1111/BiliDesk/releases/latest)
+[![Release](https://img.shields.io/github/v/release/kashwan/BiliDesk?style=flat-square)](https://github.com/kashwan/BiliDesk/releases/latest)
 [![Platform](https://img.shields.io/badge/Windows-10%2B-0078D4?logo=windows11&logoColor=white&style=flat-square)](#-下载安装)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white&style=flat-square)](#-从源码构建)
-[![License](https://img.shields.io/github/license/ABING1111/BiliDesk?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/github/license/kashwan/BiliDesk?style=flat-square)](LICENSE)
 
-[下载](https://github.com/ABING1111/BiliDesk/releases/latest) · [功能特性](#-功能特性) · [快捷键](#-快捷键) · [从源码构建](#-从源码构建)
+[下载](https://github.com/kashwan/BiliDesk/releases/latest) · [功能特性](#-功能特性) · [快捷键](#-快捷键) · [从源码构建](#-从源码构建)
 
 <br>
 
@@ -25,6 +25,9 @@
 
 > [!IMPORTANT]
 > 本项目为非官方、非商业的开源软件，与哔哩哔哩官方无任何关联；视频内容与版权归哔哩哔哩及各 UP 主所有。
+
+> [!NOTE]
+> 当前仓库是 [`kashwan/BiliDesk`](https://github.com/kashwan/BiliDesk) 的 `restructure-mpv-core` 分支：已移除 VLC，只保留 mpv 播放内核；源码目录在仓库根目录，不使用原仓库 `main` 的嵌套结构。
 
 ## ✨ 功能特性
 
@@ -60,7 +63,7 @@
 - 亮色 / 暗色 / 跟随系统三态主题，主题色可自定义
 - 界面字体可自定义：系统字体任选（逐项预览），也可导入 .ttf / .otf / .ttc 字体文件，弹幕跟随同一字体
 - 亚克力 / 云母窗口材质
-- 托盘常驻，自动检查更新
+- 托盘常驻；自动检查更新默认关闭，可在设置中开启
 
 ## ⌨️ 快捷键
 
@@ -83,7 +86,7 @@
 
 ## 📥 下载安装
 
-前往 [**Releases**](https://github.com/ABING1111/BiliDesk/releases/latest) 获取最新版本：
+前往 [**Releases**](https://github.com/kashwan/BiliDesk/releases/latest) 获取该分支的 mpv-core 测试包：
 
 | 发行包 | 说明 |
 | :--- | :--- |
@@ -95,7 +98,7 @@
 需要 Windows 10+ 与 [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)（x64）。
 
 ```powershell
-git clone https://github.com/ABING1111/BiliDesk.git
+git clone --branch restructure-mpv-core https://github.com/kashwan/BiliDesk.git
 cd BiliDesk
 dotnet build BiliDesk.csproj -c Release
 ```
@@ -113,9 +116,9 @@ libmpv 原生库**不进仓库**（约 122MB），需要自行下载并放到固
 
 构建时会自动复制到输出目录；文件缺失时工程仍可构建，只是播放内核不可用。
 
-> 本项目固定使用 `mpv-dev-x86_64-v3-20261111-git-bcde6b93cc`
-> （mpv `v0.42.0-38-gbcde6b93c` / FFmpeg `N-128766-gcd4e96eb3`）。
-> SHA-256、许可与来源见 [`docs/libmpv-build.md`](docs/libmpv-build.md)。
+> 本地源码构建按 [`docs/libmpv-build.md`](docs/libmpv-build.md) 记录的参考版本放置 DLL；
+> 发布工作流每次构建都会从 shinchiro 的最新 Release 解析 `mpv-dev-x86_64-v3-*.7z`，
+> 用 GitHub 提供的 digest 校验归档，并把实际 DLL SHA-256 写入发布脚本再校验一次。
 > 该 DLL 已被 `.gitignore` 排除，不会进入提交。
 
 完整发布（便携版 zip + Inno 安装器载荷）运行仓库根目录的 `发布.ps1`。
