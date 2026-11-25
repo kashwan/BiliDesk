@@ -921,7 +921,7 @@ public class SettingsViewModel : ObservableObject
     /// <summary>下拉框显示项; 下标与 <see cref="HwdecMode"/> 的数值一一对应。</summary>
     public string[] HwdecOptions { get; } =
     {
-        "自动", "自动（复制）", "D3D11", "D3D11 (Copy)",
+        "自动（优先硬解）", "自动（复制）", "D3D11", "D3D11 (Copy)",
         "D3D12", "NVDEC", "Vulkan", "软件解码"
     };
 

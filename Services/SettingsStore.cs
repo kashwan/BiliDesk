@@ -508,7 +508,7 @@ public class SettingsStore
     /// <summary>
     /// 硬件解码模式(2026-11-22, mpv 迁移: 原"视频输出模块"改为 --hwdec)。
     ///
-    /// ★ 默认 <see cref="Models.HwdecMode.AutoSafe"/>: mpv 只在确认安全时启用硬解,
+    /// ★ 默认 <see cref="Models.HwdecMode.AutoSafe"/>: mpv 优先尝试硬解,
     ///   失败自动回退软解。
     /// ★ 为什么开放切换: 硬解在不同显卡/驱动上表现不一(花屏、绿屏、黑屏、NVIDIA 叠加层);
     ///   出问题时切"关闭"或换一个后端是最快的排查手段。
@@ -516,7 +516,7 @@ public class SettingsStore
     /// </summary>
     public HwdecMode HwdecMode { get; set; } = HwdecMode.AutoSafe;
 
-    /// <summary>设置硬件解码模式并落盘(未定义的值回落 AutoSafe)</summary>
+    /// <summary>设置硬件解码模式并落盘(未定义的值回落默认自动模式)</summary>
     public void SetHwdecMode(HwdecMode mode)
     {
         if (!Enum.IsDefined(typeof(HwdecMode), mode)) mode = HwdecMode.AutoSafe;
@@ -973,7 +973,7 @@ public class SettingsStore
         //   null = 老配置没这个字段 = 自动(true)。
         AutoBufferPolicy = s.AutoBufferPolicy ?? true;
 
-        // 硬件解码模式: 未定义的值(手改配置)一律回落"自动(安全)",
+        // 硬件解码模式: 未定义的值(手改配置)一律回落默认自动优先硬解,
         // 不让它流到 mpv 里变成非法 --hwdec 值。
         HwdecMode = Enum.IsDefined(typeof(HwdecMode), s.HwdecMode)
             ? s.HwdecMode

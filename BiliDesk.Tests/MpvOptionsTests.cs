@@ -97,7 +97,7 @@ public class MpvOptionsTests
         Assert.Contains(opts, kv => kv.Key == "config" && kv.Value == "no");
         Assert.Contains(opts, kv => kv.Key == "osc" && kv.Value == "no");
         Assert.Contains(opts, kv => kv.Key == "terminal" && kv.Value == "no");
-        Assert.Contains(opts, kv => kv.Key == "hwdec" && kv.Value == "auto-safe");
+        Assert.Contains(opts, kv => kv.Key == "hwdec" && kv.Value == "auto");
         Assert.Contains(opts, kv => kv.Key == "idle" && kv.Value == "yes");
         Assert.DoesNotContain(opts, kv => kv.Key == "wid");
     }
@@ -127,7 +127,7 @@ public class MpvOptionsTests
     }
 
     [Theory]
-    [InlineData(HwdecMode.AutoSafe, "auto-safe")]
+    [InlineData(HwdecMode.AutoSafe, "auto")]
     [InlineData(HwdecMode.AutoCopy, "auto-copy")]
     [InlineData(HwdecMode.D3D11Va, "d3d11va")]
     [InlineData(HwdecMode.D3D11VaCopy, "d3d11va-copy")]

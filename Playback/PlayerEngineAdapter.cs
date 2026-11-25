@@ -28,7 +28,7 @@ public sealed class PlayerEngineAdapter : IDisposable
     private bool _disposed;
 
     /// <summary>硬件解码模式(mpv --hwdec), 由 PlayerWindow 在构造时从设置里取。</summary>
-    public string Hwdec { get; init; } = "auto-safe";
+    public string Hwdec { get; init; } = "auto";
 
     /// <summary>暂停时保持音频流(mpv --audio-stream-silence)。</summary>
     public bool AudioStreamSilence { get; init; }

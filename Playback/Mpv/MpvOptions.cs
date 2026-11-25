@@ -38,8 +38,8 @@ public sealed record MpvGlobalOptions
     /// <summary>嵌入的宿主窗口句柄(0 = 不嵌入, mpv 自己开窗)。</summary>
     public long WindowId { get; init; }
 
-    /// <summary>硬解: auto-safe / no / d3d11va ...</summary>
-    public string Hwdec { get; init; } = "auto-safe";
+    /// <summary>硬解: auto / no / d3d11va ...</summary>
+    public string Hwdec { get; init; } = "auto";
 
     public bool VerboseLog { get; init; }
 

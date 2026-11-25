@@ -207,7 +207,7 @@ public enum RecommendSource
 /// <summary>
 /// 硬件解码模式(2026-11-22, mpv 迁移; 原 VideoOutputMode 改为映射 mpv 的 --hwdec)。
 ///
-/// ★ AutoSafe(默认)= mpv 的 auto-safe: 只在确认安全时才启用硬解, 失败自动回退软解。
+/// ★ AutoSafe(默认)= mpv 的 auto: 优先尝试硬解, 失败自动回退软解。
 /// ★ No = 纯软解(排查花屏/绿屏/驱动问题时用)。
 /// ★ 其余是指定后端: D3D11VA / D3D12 / NVDEC / Vulkan, "-copy" 表示解码后拷贝回内存
 ///   (兼容性更好, 但多一次拷贝)。
@@ -215,7 +215,7 @@ public enum RecommendSource
 /// </summary>
 public enum HwdecMode
 {
-    /// <summary>自动(安全) —— mpv `hwdec=auto-safe`</summary>
+    /// <summary>自动(优先硬解) —— mpv `hwdec=auto`</summary>
     AutoSafe = 0,
     /// <summary>自动 + 拷贝回内存 —— mpv `hwdec=auto-copy`</summary>
     AutoCopy = 1,
@@ -245,7 +245,8 @@ public static class HwdecModeExtensions
         HwdecMode.Nvdec => "nvdec",
         HwdecMode.Vulkan => "vulkan",
         HwdecMode.No => "no",
-        _ => "auto-safe",
+        HwdecMode.AutoSafe => "auto",
+        _ => "auto",
     };
 }
 

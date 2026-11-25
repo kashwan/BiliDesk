@@ -190,7 +190,7 @@ public class AppSettings
     public bool? AutoBufferPolicy { get; set; }
 
     /// <summary>
-    /// 硬件解码模式(见 <see cref="HwdecMode"/>; 0=自动安全)。
+    /// 硬件解码模式(见 <see cref="HwdecMode"/>; 0=自动优先硬解)。
     /// ★ 老配置没有这个字段 ⇒ 反序列化得到 0 = AutoSafe, 正是期望的默认。
     /// ★ 与 Services/SettingsStore.cs 的同名属性是**读写契约**, 两处必须一致;
     ///   越界值由 SettingsStore 读取时回落 AutoSafe。

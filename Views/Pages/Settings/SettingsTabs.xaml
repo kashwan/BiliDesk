@@ -866,7 +866,7 @@
 
                     <!-- ★ 组七: 兼容性(2026-11-22 改为 mpv 硬件解码)
                          对应 mpv 的 hwdec 选项: 出花屏/绿屏/黑屏或想排查显卡驱动时,
-                         切「关闭(软解)」或换一个后端是最快的手段。默认「自动(安全)」。 -->
+                         切「关闭(软解)」或换一个后端是最快的手段。默认「自动（优先硬解）」。 -->
                     <Border Style="{StaticResource SettingsGroupDivider}" />
                     <ContentControl Content="兼容性" Style="{StaticResource SettingsGroupHeaderStyle}" />
 
