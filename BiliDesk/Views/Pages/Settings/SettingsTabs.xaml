@@ -611,27 +611,6 @@
                     </Grid>
                     <Border Style="{StaticResource SettingsRowDivider}" />
 
-                    <!-- 音频重采样(2026-11-22, 修 1.8.3 "蓝牙耳机一卡一卡").
-                         ★ 默认「自动」: 直连音响/声卡用 speex(修 44.1k→48k 电流音),
-                           蓝牙耳机自动回落到 libvlc 默认策略(防低延迟端点下的断断续续).
-                         ★ 出问题时让用户先切这里, 比让他改配置文件可靠. -->
-                    <Grid Style="{StaticResource SettingsRowStyle}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                            <TextBlock Text="音频重采样" Style="{StaticResource SettingsRowTitleStyle}" />
-                            <TextBlock Text="{Binding AudioResamplerHint}"
-                                       Style="{StaticResource SettingsRowDescStyle}" />
-                        </StackPanel>
-                        <ComboBox Grid.Column="1" Style="{StaticResource SettingsComboStyle}"
-                                  Width="170" VerticalAlignment="Center"
-                                  ItemsSource="{Binding AudioResamplerOptions}"
-                                  SelectedItem="{Binding AudioResamplerSelected, Mode=TwoWay}" />
-                    </Grid>
-                    <Border Style="{StaticResource SettingsRowDivider}" />
-
                     <!-- 高音质音轨优先: 有 Hi-Res 无损 / 杜比音轨时优先使用。
                          ★ 只影响音频选轨, 不改画面清晰度; 普通视频仍回落到 192K AAC。 -->
                     <Grid Style="{StaticResource SettingsRowStyle}">
@@ -714,6 +693,26 @@
                         <CheckBox Grid.Column="1" Style="{StaticResource SettingsToggleStyle}"
                                   VerticalAlignment="Center"
                                   IsChecked="{Binding AutoPlayNext, Mode=TwoWay}" />
+                    </Grid>
+
+                    <!-- ★ 组: 音频(2026-11-22, mpv audio-stream-silence 选项)
+                         暂停时保持音频设备输出静音, 避免部分声卡/蓝牙耳机在暂停→恢复时爆音/断连。 -->
+                    <Border Style="{StaticResource SettingsGroupDivider}" />
+                    <ContentControl Content="音频" Style="{StaticResource SettingsGroupHeaderStyle}" />
+
+                    <Grid Style="{StaticResource SettingsRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                            <TextBlock Text="暂停时保持音频流" Style="{StaticResource SettingsRowTitleStyle}" />
+                            <TextBlock Text="{Binding AudioStreamSilenceHint}"
+                                       Style="{StaticResource SettingsRowDescStyle}" />
+                        </StackPanel>
+                        <CheckBox Grid.Column="1" Style="{StaticResource SettingsToggleStyle}"
+                                  VerticalAlignment="Center"
+                                  IsChecked="{Binding AudioStreamSilence, Mode=TwoWay}" />
                     </Grid>
 
                     <!-- ★ 组五: 字幕(2026-11-15)
@@ -865,9 +864,9 @@
                                   IsChecked="{Binding BlockPcdn, Mode=TwoWay}" />
                     </Grid>
 
-                    <!-- ★ 组七: 兼容性(2026-11-20, issue #98)
-                         视频输出模块由 libvlc 插件决定, 出问题时(花屏/黑屏/NVIDIA 叠加层误判)
-                         换一档常能绕开。默认"自动"不改变现有行为。 -->
+                    <!-- ★ 组七: 兼容性(2026-11-22 改为 mpv 硬件解码)
+                         对应 mpv 的 hwdec 选项: 出花屏/绿屏/黑屏或想排查显卡驱动时,
+                         切「关闭(软解)」或换一个后端是最快的手段。默认「自动(安全)」。 -->
                     <Border Style="{StaticResource SettingsGroupDivider}" />
                     <ContentControl Content="兼容性" Style="{StaticResource SettingsGroupHeaderStyle}" />
 
@@ -877,34 +876,14 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                            <TextBlock Text="视频输出" Style="{StaticResource SettingsRowTitleStyle}" />
-                            <TextBlock Text="{Binding VideoOutputHint}"
+                            <TextBlock Text="硬件解码" Style="{StaticResource SettingsRowTitleStyle}" />
+                            <TextBlock Text="{Binding HwdecHint}"
                                        Style="{StaticResource SettingsRowDescStyle}" />
                         </StackPanel>
                         <ComboBox Grid.Column="1" Style="{StaticResource SettingsComboStyle}"
                                   Width="170" VerticalAlignment="Center"
-                                  ItemsSource="{Binding VideoOutputOptions}"
-                                  SelectedItem="{Binding VideoOutputSelected, Mode=TwoWay}" />
-                    </Grid>
-
-                    <!-- 硬件解码(2026-11-22, issue #119): VLC 3.0.24 在部分 NVIDIA 显卡上
-                         暂停再恢复后画面会永久停在最后一帧(音频继续)。关掉后新起播的 Media
-                         改走 CPU 软解 —— 永久规避, 代价是高分辨率更吃性能。 -->
-                    <Border Style="{StaticResource SettingsRowDivider}" />
-
-                    <Grid Style="{StaticResource SettingsRowStyle}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                            <TextBlock Text="硬件解码" Style="{StaticResource SettingsRowTitleStyle}" />
-                            <TextBlock Text="{Binding HardwareDecodingHint}"
-                                       Style="{StaticResource SettingsRowDescStyle}" />
-                        </StackPanel>
-                        <CheckBox Grid.Column="1" Style="{StaticResource SettingsToggleStyle}"
-                                  VerticalAlignment="Center"
-                                  IsChecked="{Binding HardwareDecoding, Mode=TwoWay}" />
+                                  ItemsSource="{Binding HwdecOptions}"
+                                  SelectedItem="{Binding HwdecSelected, Mode=TwoWay}" />
                     </Grid>
                 </StackPanel>
             </Border>

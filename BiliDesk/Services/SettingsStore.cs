@@ -342,13 +342,6 @@ public class SettingsStore
     public AudioTier PreferredAudioTier { get; set; } = AudioTier.Auto;
 
     /// <summary>
-    /// 音频重采样档位(2026-11-22 新增, 修 1.8.3 的"蓝牙耳机一卡一卡")。
-    /// 默认 Auto: 非蓝牙端点 speex(音质), 蓝牙端点 any(兼容)。
-    /// 与 <see cref="Models.AppSettings.AudioResamplerMode"/> 是读写契约。
-    /// </summary>
-    public AudioResamplerMode AudioResamplerMode { get; set; } = AudioResamplerMode.Auto;
-
-    /// <summary>
     /// 下次打开视频时自动跳到此前的观看进度(默认开)。
     /// 关闭后仍然记录进度, 只是不自动跳转 —— 给"想从头再看一遍"的用户留一个入口。
     /// </summary>
@@ -513,45 +506,30 @@ public class SettingsStore
     }
 
     /// <summary>
-    /// LibVLC 的视频输出模块(2026-11-20, issue #98)。
+    /// 硬件解码模式(2026-11-22, mpv 迁移: 原"视频输出模块"改为 --hwdec)。
     ///
-    /// ★ 默认 <see cref="Models.VideoOutputMode.Auto"/>: 让 libvlc 自己挑(Windows 上通常 direct3d11)。
-    /// ★ 为什么把它做成设置: 用户报"启动后首次打开视频, NVIDIA App 的叠加层弹出来,
-    ///   像是被识别成游戏"。叠加层挂在"创建了 D3D 交换链"的进程上, 而这条链路由 vout 插件决定;
-    ///   OpenGL 输出通常不创建 DXGI 交换链, 可作为规避手段。本机没有 NVIDIA App 无法复现,
-    ///   所以只提供**可切换 + 可回退**, 不声称已根除(它是 NVIDIA 侧的行为)。
-    /// ★ LibVLC 是进程级单例: 运行中改这项不生效, 必须重启应用(设置页的 Hint 会写明)。
+    /// ★ 默认 <see cref="Models.HwdecMode.AutoSafe"/>: mpv 只在确认安全时启用硬解,
+    ///   失败自动回退软解。
+    /// ★ 为什么开放切换: 硬解在不同显卡/驱动上表现不一(花屏、绿屏、黑屏、NVIDIA 叠加层);
+    ///   出问题时切"关闭"或换一个后端是最快的排查手段。
+    /// ★ hwdec 在播放器创建时生效: 改完重新打开播放器即可, 不必重启整个应用。
     /// </summary>
-    public VideoOutputMode VideoOutputMode { get; set; } = VideoOutputMode.Auto;
+    public HwdecMode HwdecMode { get; set; } = HwdecMode.AutoSafe;
 
-    /// <summary>设置视频输出模块并落盘(未定义的值回落 Auto)</summary>
-    public void SetVideoOutputMode(VideoOutputMode mode)
+    /// <summary>设置硬件解码模式并落盘(未定义的值回落 AutoSafe)</summary>
+    public void SetHwdecMode(HwdecMode mode)
     {
-        if (!Enum.IsDefined(typeof(VideoOutputMode), mode)) mode = VideoOutputMode.Auto;
-        if (VideoOutputMode == mode) return;
-        VideoOutputMode = mode;
+        if (!Enum.IsDefined(typeof(HwdecMode), mode)) mode = HwdecMode.AutoSafe;
+        if (HwdecMode == mode) return;
+        HwdecMode = mode;
         Save();
     }
 
     /// <summary>
-    /// 是否允许硬件解码(默认开)。2026-11-22, issue #119。
-    ///
-    /// ★ 为什么要暴露给用户: 打包的 libvlc 3.0.24 在 NVIDIA 上有一个已知缺陷 ——
-    ///   暂停再恢复后 d3d11va 的输出视图池可能耗尽, 画面永久停在最后一帧而音频继续
-    ///   (上游 3.0.25 才修, 见 VoutFreezePolicy 的说明)。项目会先自动检测并用软解重建,
-    ///   这里给用户一个**永久**规避手段; 软解更吃 CPU, 所以默认仍然开启硬解。
-    /// ★ 它按 Media 级 `:avcodec-hw=none` 生效(见 PlayerWindow.PlayMedia), 不需要重启应用,
-    ///   但只影响**下一次起播**的 input。
+    /// 暂停时保持音频流(对应 mpv `--audio-stream-silence`)。
+    /// ★ 默认关: 只有部分声卡/蓝牙耳机在暂停→恢复时爆音、断连的用户才需要开。
     /// </summary>
-    public bool HardwareDecodingEnabled { get; set; } = true;
-
-    /// <summary>设置是否允许硬件解码并落盘</summary>
-    public void SetHardwareDecodingEnabled(bool enabled)
-    {
-        if (HardwareDecodingEnabled == enabled) return;
-        HardwareDecodingEnabled = enabled;
-        Save();
-    }
+    public bool AudioStreamSilence { get; set; }
 
     /// <summary>
     /// 上次用的搜索类别(见 <see cref="Models.ContentKind"/>: 0=视频 1=直播间 2=番剧 3=UP主)。
@@ -952,9 +930,6 @@ public class SettingsStore
         // 音质档位: 手改配置可能塞进 30251 之外的数字 ⇒ 一律落回「自动」。
         PreferredAudioTier = AudioPreference.Normalize(s.PreferredAudioTier);
 
-        // 音频重采样(2026-11-22): 同理, 非法值落回「自动」(蓝牙看端点、其它用 speex)。
-        AudioResamplerMode = AudioResamplerPreference.Normalize(s.AudioResamplerMode);
-
         // 播放器窗口大小记忆(2026-11-03 新增): 老配置没有这三个字段 ⇒
         // AppSettings 的初始化值就是"开启 + 尚未记过尺寸(0)", 不需要版本兼容。
         // ★ 宽高必须夹取/丢弃: 手改配置可能塞进负数或离谱值, 直接拿去设 Width 会让窗口
@@ -998,15 +973,14 @@ public class SettingsStore
         //   null = 老配置没这个字段 = 自动(true)。
         AutoBufferPolicy = s.AutoBufferPolicy ?? true;
 
-        // 视频输出模块(2026-11-20, issue #98): 未定义的值(手改配置)一律回落"自动",
-        // 不让它流到 VlcCore 里拼成一个 libvlc 不认识的 --vout。
-        VideoOutputMode = Enum.IsDefined(typeof(VideoOutputMode), s.VideoOutputMode)
-            ? s.VideoOutputMode
-            : VideoOutputMode.Auto;
+        // 硬件解码模式: 未定义的值(手改配置)一律回落"自动(安全)",
+        // 不让它流到 mpv 里变成非法 --hwdec 值。
+        HwdecMode = Enum.IsDefined(typeof(HwdecMode), s.HwdecMode)
+            ? s.HwdecMode
+            : HwdecMode.AutoSafe;
 
-        // 硬件解码(2026-11-22, issue #119): 老配置没有这个字段 ⇒ null ⇒ 默认开启。
-        // 用可空接是为了区分“没写过”与“明确关掉”, 与 AutoBufferPolicy 同一套约定。
-        HardwareDecodingEnabled = s.HardwareDecodingEnabled ?? true;
+        // 暂停时保持音频流(mpv --audio-stream-silence); 老配置缺字段 ⇒ false。
+        AudioStreamSilence = s.AudioStreamSilence;
 
         // 上次的搜索类别: 老配置没这个字段 ⇒ 视频(与搜索页初始类别一致)。
         SearchKind = Enum.IsDefined(typeof(ContentKind), s.LastSearchKind)
@@ -1191,7 +1165,6 @@ public class SettingsStore
         PlayerVolume = PlayerVolume,
         PreferHighQualityAudio = PreferHighQualityAudio,
         PreferredAudioTier = PreferredAudioTier,
-        AudioResamplerMode = AudioResamplerMode,
         AutoResume = AutoResume,
         ShowRelatedVideos = ShowRelatedVideos,
         AutoPlayNext = AutoPlayNext,
@@ -1210,8 +1183,8 @@ public class SettingsStore
         MainWindowTop = MainWindowTop,
         NetworkCachingMs = NetworkCachingMs,
         AutoBufferPolicy = AutoBufferPolicy,
-        VideoOutputMode = VideoOutputMode,
-        HardwareDecodingEnabled = HardwareDecodingEnabled,
+        HwdecMode = HwdecMode,
+        AudioStreamSilence = AudioStreamSilence,
         LastSearchKind = (int)SearchKind
     };
 

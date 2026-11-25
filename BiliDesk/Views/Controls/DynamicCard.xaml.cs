@@ -61,7 +61,6 @@ public partial class DynamicCard : UserControl
             _expanded = false;
             _menu = null;
             ContextMenu = null;
-            SetMoreActive(false);
             // 虚拟化回收: 上一条是展开态时, 复用到下一条必须复位, 否则新卡片一进来就是"全文"态
             if (ContentTextBlock != null) ContentTextBlock.Visibility = Visibility.Visible;
             if (ContentRichText != null)
@@ -76,7 +75,7 @@ public partial class DynamicCard : UserControl
         {
             if (_prewarmRequested) return;
             _prewarmRequested = true;
-            VlcCore.PrewarmOnDemand();
+
         };
         SizeChanged += (_, _) =>
         {
@@ -314,28 +313,10 @@ public partial class DynamicCard : UserControl
 
     private void UpdateVideoHeight()
     {
-        FitVideoHost(VideoHost, 405);
-        FitVideoHost(OrigVideoHost, 405);
-    }
-
-    /// <summary>封面块按 16:9 定高(宽度撑满时高度跟着走, 否则封面会被裁成长条 —— issue #122)。</summary>
-    private static void FitVideoHost(Border host, double maxHeight)
-    {
-        var w = host.ActualWidth;
+        var w = VideoHost.ActualWidth;
         if (w <= 0) return;
-        var h = Math.Min(w * 9 / 16, maxHeight);
-        // 高度被设过之后重排会再触发一次 SizeChanged, 差值判断让它在第二轮停下。
-        // ★ NaN 必须单独判: 没设过 Height 时 Height 是 NaN, 而 NaN > 0.5 是 false ——
-        //   只写差值判断会让首次设高被自己挡掉(探针实测: 高度一直停在角标那 20px)。
-        if (double.IsNaN(host.Height) || Math.Abs(host.Height - h) > 0.5) host.Height = h;
+        VideoHost.Height = Math.Min(w * 9 / 16, 405);
     }
-
-    /// <summary>
-    /// 转发原文的封面块自己也要能定高: 它只在 IsForward 时可见, 虚拟化回收复用到新数据时
-    /// 外层卡尺寸可能没变(不触发卡片的 SizeChanged), 只能靠它自己被量出宽度这一下。
-    /// </summary>
-    private void OnOrigVideoHostSizeChanged(object sender, SizeChangedEventArgs e)
-        => FitVideoHost(OrigVideoHost, 405);
 
     private void OnVideoEnter(object sender, MouseEventArgs e) => PlayOverlay.Opacity = 1;
     private void OnVideoLeave(object sender, MouseEventArgs e) => PlayOverlay.Opacity = 0;
@@ -347,23 +328,7 @@ public partial class DynamicCard : UserControl
         _menu ??= BuildMenu();
         ContextMenu = _menu;
         if (sender is UIElement target) _menu.PlacementTarget = target;
-
-        // 已经开着(点第二下): 先关掉, 不让它原地重开
-        if (_menu.IsOpen)
-        {
-            _menu.IsOpen = false;
-            return;
-        }
-
-        SetMoreActive(true);
         _menu.IsOpen = true;
-    }
-
-    /// <summary>「更多」按钮的常亮态: 菜单开着时铺底, 关掉即收回(样式见 CardMoreButtonStyle)。</summary>
-    private void SetMoreActive(bool active)
-    {
-        if (MoreButton == null) return;
-        MoreButton.IsChecked = active;
     }
 
     private void OnContextMenuOpening(object sender, ContextMenuEventArgs e)
@@ -388,9 +353,6 @@ public partial class DynamicCard : UserControl
     {
         var menu = new ContextMenu();
         var item = Current;
-
-        // 菜单一关, 「更多」按钮的常亮态跟着收回(右键菜单也走这条, 只是那边本来就没点亮)
-        menu.Closed += (_, _) => SetMoreActive(false);
 
         menu.Items.Add(MakeMenuItem("查看动态详情", "\uE8A7", (_, _) =>
         {

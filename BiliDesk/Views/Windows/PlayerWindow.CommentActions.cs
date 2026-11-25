@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -19,9 +19,6 @@ using System.Windows.Threading;
 using BiliDesk.Helpers;
 using BiliDesk.Models;
 using BiliDesk.Services;
-using LibVLCSharp.Shared;
-using LibVLCSharp.WPF;
-using MediaPlayer = LibVLCSharp.Shared.MediaPlayer;
 
 namespace BiliDesk.Views;
 
@@ -400,13 +397,7 @@ public partial class PlayerWindow : FluentWindow
         if (_composerOpen) CommentDraft?.Focus();
     }
 
-    // ------------------------------------------------------------ 表情(2026-11-22)
-
-    /// <summary>
-    /// 头行的「表情」按钮: 展开/收起输入框下方的表情墙。
-    /// ★ 未登录直接 Toast 不展开: 表情是按账号下发的, 未登录拉回来的是空列表,
-    ///   展开一个空面板比"点了没反应"更让人困惑。
-    /// </summary>
+    /// <summary>头行的表情按钮：未登录不展开空面板。</summary>
     private void OnComposerEmoteClick(object sender, RoutedEventArgs e)
     {
         if (_closing || CommentEmoteWall == null) return;
@@ -418,27 +409,18 @@ public partial class PlayerWindow : FluentWindow
         CommentEmoteWall.Toggle();
     }
 
-    /// <summary>
-    /// 点了一个表情: 把短代码插到输入框的**光标处**(不是末尾)。
-    /// ★ 走 CommentDraft.Text 赋值而不是 Insert: 输入框没绑 VM, 文本就是唯一真源;
-    ///   赋值后 TextChanged 会自己刷新"发表"按钮的可用性(见 OnCommentDraftChanged)。
-    /// ★ 光标位置要显式复位: 直接赋 Text 会把 CaretIndex 归 0, 用户接着打字就会打到句首。
-    /// </summary>
+    /// <summary>选中表情：按光标位置插入短代码，并保留插入后的光标位置。</summary>
     private void OnCommentEmotePicked(object? sender, MsgEmote emote)
     {
         if (_closing || CommentDraft == null || emote.Text.Length == 0) return;
-
         var (text, caret) = EmoteInsert.Insert(
             CommentDraft.Text, CommentDraft.CaretIndex, emote.Text,
             CommentDraft.MaxLength > 0 ? CommentDraft.MaxLength : EmoteInsert.DefaultMaxLength);
-
-        // 没变化 = 撞到字数上限(EmoteInsert 超限时原样返回), 给个明确反馈
         if (text.Length == (CommentDraft.Text?.Length ?? 0))
         {
             Svc.Toast.Show($"评论最多 {CommentDraft.MaxLength} 字");
             return;
         }
-
         CommentDraft.Text = text;
         CommentDraft.CaretIndex = caret;
         CommentDraft.Focus();
@@ -517,7 +499,6 @@ public partial class PlayerWindow : FluentWindow
     {
         if (!_composerOpen || CommentComposerPanel == null || CommentFabIcon == null) return;
         _composerOpen = false;
-        // 表情墙属于输入框: 面板收起时它必须一起收, 否则下次展开会莫名挂着一整片表情
         CommentEmoteWall?.Close();
         CommentFabIcon.Text = "\uE70F";   // Edit: 笔
         CommentFab.ToolTip = "写评论";

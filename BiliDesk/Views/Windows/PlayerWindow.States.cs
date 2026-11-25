@@ -19,9 +19,6 @@ using System.Windows.Threading;
 using BiliDesk.Helpers;
 using BiliDesk.Models;
 using BiliDesk.Services;
-using LibVLCSharp.Shared;
-using LibVLCSharp.WPF;
-using MediaPlayer = LibVLCSharp.Shared.MediaPlayer;
 
 namespace BiliDesk.Views;
 
@@ -132,10 +129,7 @@ public partial class PlayerWindow : FluentWindow
         _favBusy = true;
         try
         {
-            // ★ 下面每个 await 之后都要确认还停在这条视频上(见 RefreshFavStateAsync 的说明):
-            //   这份列表与 aid 一一对应, 换片后拿它去开窗/提交就是改错了视频。
             var aid = _aid;
-            // 点亮态查询已经拿过一次; 同一条视频点按钮时直接用那份, 不再打一次接口。
             var folders = _favFoldersAid == aid ? _favFolders : null;
             if (folders == null)
             {
@@ -160,8 +154,6 @@ public partial class PlayerWindow : FluentWindow
             if (_closing) return;
             var picker = new FavFolderPickerWindow(folders, _videoTitle) { Owner = this };
             picker.ShowDialog();
-            // ★ 弹窗是模态的, 但播放器/自动连播仍可能在它开着的时候换片 ——
-            //   换过片就把这次勾选丢掉, 别提交到新视频上。
             if (_closing || aid != _aid || !picker.Confirmed) return;
 
             var addIds = picker.AddedIds;

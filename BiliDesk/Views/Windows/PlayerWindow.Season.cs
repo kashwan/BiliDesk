@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -19,9 +19,6 @@ using System.Windows.Threading;
 using BiliDesk.Helpers;
 using BiliDesk.Models;
 using BiliDesk.Services;
-using LibVLCSharp.Shared;
-using LibVLCSharp.WPF;
-using MediaPlayer = LibVLCSharp.Shared.MediaPlayer;
 
 namespace BiliDesk.Views;
 
@@ -307,7 +304,7 @@ public partial class PlayerWindow : FluentWindow
         _switchingSeasonEpisode = true;
         try
         {
-            try { _mp.Stop(); } catch { }
+            try { _engine.Stop(); } catch { }
             _currentBvid = ep.Bvid;
             // ★ 关键: 合集里的集是**在线稿件**, 不是本地文件/直播 —— 从离线缓存/直播那类入口
             //   切过来时这两个标志还是 true, 不清掉新片会被当成"没有在线上下文",
@@ -356,9 +353,6 @@ public partial class PlayerWindow : FluentWindow
         _pages = pages ?? new List<VideoPage>();
         _hasPages = _pages.Count > 1;
 
-        // 自动连播: 多P 视频的"下一段"也进连播队列(2026-11-22)。
-        // ★ 必须在这里而不是只在 ApplySeason: 分P 与合集/番剧是互不排斥的两份数据,
-        //   没有合集的多P 视频全靠这条链, 否则播完 P1 会直接跳相关视频。
         ApplyAutoPlayPageChain();
 
         if (BtnPages == null) return;
@@ -422,34 +416,10 @@ public partial class PlayerWindow : FluentWindow
         if (BtnPages != null) BtnPages.Tag = "off";
     }
 
-    /// <summary>
-    /// 把分P 弹层摆到「分P」入口按钮下方(2026-11-22)。
-    ///
-    /// ★ 为什么不再让 WPF 自己摆(<c>Placement=Bottom</c>): 按钮在信息栏的 ScrollViewer 里,
-    ///   Popup 会跟踪 PlacementTarget 的布局变化 —— 滚轮一滚按钮下移, 弹层跟着下移
-    ///   (用户报"分P 面板随滚轮一起向下移动")。现在 PlacementTarget 换成**不滚动**的
-    ///   InfoContentHost(Ctor 里设), 每次打开按按钮的当前屏幕坐标算一次偏移。
-    ///   页面滚动本身则直接**收起**弹层(见 OnInfoScrollChanged) —— 否则滚动之后弹层会
-    ///   悬在完全不相干的内容上(用户截图: 滚到相关视频, 分P 面板还浮在那儿)。
-    /// ★ 顺带修"整体偏右、超出窗口"(上一轮): 入口在右侧 400px 信息栏里、又排在
-    ///   简介/评论/合集之后, 300px 宽的弹层左缘对齐按钮时右缘必然顶出窗口。水平/竖直
-    ///   的夹取判定都是纯函数, 见 <see cref="Helpers.PopupPlacement"/>。
-    /// ★ 为什么全用屏幕物理像素量: 信息栏套着 UiScale 的 LayoutTransform(见 Fields.ScaleRoot),
-    ///   而弹层在独立可视树里**不参与**软件缩放 —— 两边的 DIP 不是同一个坐标系。
-    ///   PointToScreen 会把 LayoutTransform 一起算进去, 也正是 WPF 摆弹层用的基准。
-    /// ★★★ 为什么偏移要除以 pxPerDip 而不是 DPI: 实测(100%/125%/150% 三档探针)
-    ///   HorizontalOffset/VerticalOffset 是**锚点本地 DIP** —— 锚点在带 LayoutTransform 的
-    ///   子树里时, WPF 会把它再乘一次软件缩放倍数。按"100 本地 DIP = 多少屏幕像素"折算
-    ///   后才是一对一的物理位移。
-    /// </summary>
+    /// <summary>把分P 弹层摆到不随信息栏滚动的位置，并按当前按钮坐标计算一次偏移。</summary>
     private void PositionPagesPopupAtButton()
     {
         if (_closing || PagesPopup == null || BtnPages == null || InfoContentHost == null) return;
-
-        // 宽高必须等弹层布局跑完才可信(Opened 时 Popup.ActualWidth 还是 0),
-        // 所以调用方放在 DispatcherPriority.Loaded 里量 —— 与清晰度/倍速弹层的右对齐同款。
-        // 拿不到 Actual 就退回 DesiredSize: 此时 Measure 一定已经跑过, 至少不会把弹层
-        // 留在"锚点左上角"(Relative 的默认位置)。
         if (PagesPopup.Child is not FrameworkElement child) return;
         var width = child.ActualWidth > 0 ? child.ActualWidth : child.DesiredSize.Width;
         var height = child.ActualHeight > 0 ? child.ActualHeight : child.DesiredSize.Height;
@@ -458,10 +428,6 @@ public partial class PlayerWindow : FluentWindow
         var dpi = VisualTreeHelper.GetDpi(this);
         var dpiX = dpi.DpiScaleX > 0 ? dpi.DpiScaleX : 1;
         var dpiY = dpi.DpiScaleY > 0 ? dpi.DpiScaleY : 1;
-
-        // 锚点(信息栏外层, 不随 ScrollViewer 滚动)左上角的屏幕坐标,
-        // 以及"1 锚点本地 DIP = 多少屏幕像素"(含 DPI 与信息栏软件缩放)。
-        // ★ 必须用大跨度量: PointToScreen 会把单个 DIP 的跨度取整, 1.25px 量成 1px。
         var origin = InfoContentHost.PointToScreen(new Point(0, 0));
         var pxPerDipX = (InfoContentHost.PointToScreen(new Point(100, 0)).X - origin.X) / 100.0;
         var pxPerDipY = (InfoContentHost.PointToScreen(new Point(0, 100)).Y - origin.Y) / 100.0;
@@ -474,11 +440,9 @@ public partial class PlayerWindow : FluentWindow
         var winRight = PointToScreen(new Point(ActualWidth, 0)).X;
         var winBottom = PointToScreen(new Point(0, ActualHeight)).Y;
 
-        // 水平: 左缘对齐入口按钮, 装不下才整体左移(见 PopupPlacement)
         var dx = Helpers.PopupPlacement.ClampHorizontalOffset(
             btnOrigin.X, width * dpiX, winOrigin.X, winRight,
             Helpers.PopupPlacement.EdgeMargin * dpiX);
-        // 竖直: 挂在按钮下方; 下方放不下就翻到上方(与 WPF Placement=Bottom 的翻面一致)
         var top = Helpers.PopupPlacement.DropdownTop(
             btnOrigin.Y, btnBottom, height * dpiY, winOrigin.Y, winBottom,
             Helpers.PopupPlacement.AnchorGap * dpiY, Helpers.PopupPlacement.EdgeMargin * dpiY);
@@ -509,7 +473,7 @@ public partial class PlayerWindow : FluentWindow
         _switchingPage = true;
         try
         {
-            try { _mp.Stop(); } catch { }
+            try { _engine.Stop(); } catch { }
             // ★ _currentBvid 一个字都不改: 分P 是同一个稿件的分段。改 bvid 会让
             //   弹幕游标 / 历史进度 / 三连状态全部挂到别的稿件上。
             //   ResetForNewMedia 照旧要调: cid 变了就是另一段内容, 进度、弹幕游标、

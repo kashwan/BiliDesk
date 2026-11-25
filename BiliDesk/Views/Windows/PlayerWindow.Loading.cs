@@ -1,4 +1,5 @@
 using System;
+using BiliDesk.Playback;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -20,9 +21,6 @@ using System.Windows.Threading;
 using BiliDesk.Helpers;
 using BiliDesk.Models;
 using BiliDesk.Services;
-using LibVLCSharp.Shared;
-using LibVLCSharp.WPF;
-using MediaPlayer = LibVLCSharp.Shared.MediaPlayer;
 
 namespace BiliDesk.Views;
 
@@ -46,7 +44,7 @@ public partial class PlayerWindow : FluentWindow
         get
         {
             if (_closing) return false;
-            try { return _mp?.IsPlaying == true; }
+            try { return _engine?.IsPlaying == true; }
             catch { return false; }   // 拆解途中原生对象可能已失效
         }
     }
@@ -83,8 +81,8 @@ public partial class PlayerWindow : FluentWindow
     public void PlayVideo(string bvid, BangumiPlaylist? bangumi = null)
     {
         if (_closing || string.IsNullOrEmpty(bvid)) return;
-        if (bvid == _currentBvid && _mp.IsPlaying) return;
-        try { _mp.Stop(); } catch { }
+        if (bvid == _currentBvid && _engine.IsPlaying) return;
+        try { _engine.Stop(); } catch { }
         _currentBvid = bvid;
         _isLocalPlayback = false;
         _isLive = false;
@@ -326,8 +324,7 @@ public partial class PlayerWindow : FluentWindow
 
         _relatedAll = items;
 
-        // 自动连播: 这份列表就是"固定播放队列"(只有会话起点那一份会被采纳, 见实现说明)。
-        //   优先级上它排在分P / 合集链之后 —— 前两者都接不上时才轮到相关视频。
+        // 自动连播: 这份列表就是"固定播放队列"(只有会话起点那一份会被采纳, 见实现说明)
         ApplyAutoPlayVideoChain(bvid, items);
 
         if (showPanel)
@@ -419,19 +416,8 @@ public partial class PlayerWindow : FluentWindow
     {
         if (_closing) return;
         if (sender is not ScrollViewer sv) return;
-
-        // 分P 弹层(2026-11-22): 弹层的位置锚在**不滚动**的信息栏外层, 页面一滚它就会
-        // 悬在完全不相干的内容上(用户截图: 滚到相关视频了, 分P 面板还浮在那儿)。
-        // 信息栏自己滚动视作"离开这个入口"的动作, 直接收起 —— 与网页/系统下拉层的行为一致。
-        // ★★ 必须判 OriginalSource: ScrollChanged 是**冒泡**的路由事件, 弹层里分P 列表
-        //    自己的 ScrollViewer 滚动时, 事件也会送到 InfoScroll 的这个处理器上
-        //    (实测: sender=InfoScroll, OriginalSource=列表自己的 ScrollViewer,
-        //     VerticalChange=列表滚了多少)。只看 VerticalChange 会把"在面板里滚列表"
-        //     误判成"页面在滚", 面板刚滚一下就被自己关掉(用户报)。
-        // ★ 判 VerticalChange 而不是每次 ScrollChanged: 内容变高/变宽导致的布局事件
-        //   也会触发本事件, 那种情况下弹层不该被关掉。
-        if (ReferenceEquals(e.OriginalSource, sv) && Math.Abs(e.VerticalChange) > 0.5)
-            ClosePagesPopup();
+        if (e.VerticalChange != 0 && PagesPopup != null && PagesPopup.IsOpen)
+            PagesPopup.IsOpen = false;
         // 回到顶部要先于"往上滚就返回"判定: 往上滚回阈值以内时它也要熄灭
         UpdateCommentBackToTop(sv);
         // issue #89: 向下滚时把右下角工具列淡出, 别让它一直压着评论最右侧几列字
@@ -618,8 +604,8 @@ public partial class PlayerWindow : FluentWindow
     public void PlayLive(long roomId, string? roomTitle = null)
     {
         if (_closing || roomId <= 0) return;
-        if (_isLive && roomId == _liveRoomId && _mp.IsPlaying) return;
-        try { _mp.Stop(); } catch { }
+        if (_isLive && roomId == _liveRoomId && _engine.IsPlaying) return;
+        try { _engine.Stop(); } catch { }
         _currentBvid = "";
         _isLocalPlayback = true;   // 没有在线上下文: 不打接口、不互动、不上报
         _isLive = true;
@@ -723,19 +709,16 @@ public partial class PlayerWindow : FluentWindow
     {
         var liveCaching = BufferPolicy.Resolve(BufferMediaKind.Live, url, shortVideo: false,
             Svc.Settings.NetworkCachingMs, Svc.Settings.AutoBufferPolicy);
-        var liveOptions = new List<string>
-        {
-            ":no-video-title-show",
-            ":http-referrer=https://live.bilibili.com/" + roomId,
-            ":http-user-agent=" + PlayerUserAgent,
-            // 直播同样是长连接: 断了以后自己重连(同 BuildMedia 里那条说明)
-            ":http-reconnect",
-            // 直播是持续流: 加大缓存, 别让 LibVLC 因为"看起来卡住"就早早判定结束
-            ":network-caching=" + liveCaching,
-            ":live-caching=" + liveCaching
-        };
 
-        var media = new Media(_libVLC, new Uri(url), liveOptions.ToArray());
+        // 2026-11-22(mpv): 直播的请求头/缓存直接进 PlayerMedia, 不再有 libvlc 的 :network-caching 选项。
+        var media = new PlayerMedia
+        {
+            Url = url,
+            IsLive = true,
+            Referer = "https://live.bilibili.com/" + roomId,
+            UserAgent = PlayerUserAgent,
+            NetworkCacheMs = liveCaching,
+        };
         // 直播是持续流, 没有可 seek 的时间轴; 标成"可靠源"让看门狗别去重建它
         _isReliableSeekSource = true;
         return PlayMedia(media);
@@ -771,7 +754,7 @@ public partial class PlayerWindow : FluentWindow
     public void PlayLocalFile(string path)
     {
         if (_closing || string.IsNullOrEmpty(path) || !File.Exists(path)) return;
-        try { _mp.Stop(); } catch { }
+        try { _engine.Stop(); } catch { }
         _currentBvid = "";
         _isLocalPlayback = true;
         _isLive = false;
@@ -906,11 +889,6 @@ public partial class PlayerWindow : FluentWindow
         UpdateCommentCountBadge(0);
         // 本次实际排序回到用户偏好(_commentSort); 新视频重新试热门, 热门空再回退成时间
         _effectiveCommentSort = _commentSort;
-        _commentReturnRpid = 0;
-        _videoBackdropGuardTicks = 0;
-        // 音频自愈的"上次检查时刻"(_audioHealCheckAt)不清: 它是宽限期计时基准,
-        // 跨片保持最多把新片的第一次检查推迟 1.5s; 清零反而会在 aout 未就绪时立刻误检。
-        // 遮罩安全网的"上次位置"同理要归零: 留着上一片的进度会让新片的第一次 TimeChanged
         // 被当成"在推进", 把刚弹出的加载遮罩误收掉。
         _lastLoadingRevealMs = -1;
         UpdateCommentSortUi(visible: false);
@@ -977,7 +955,7 @@ public partial class PlayerWindow : FluentWindow
         //   每一次点击都被重定向过去; 而 _isSeeking 为真会让进度条永不回写、控制栏永不隐藏。
         //   ★ 顺序: 先复位 _isSeeking 再 ReleaseMouseCapture —— 释放会触发
         //     LostMouseCapture → FinishProgressScrub, 那时它看到"已经不在拖动"就直接返回,
-        //     不会拿着新片的 _mp 发一条莫名其妙的 seek。
+        //     不会拿着新片的 _engine 发一条莫名其妙的 seek。
         _isSeeking = false;
         if (ProgressSlider != null && ProgressSlider.IsMouseCaptured)
             ProgressSlider.ReleaseMouseCapture();
@@ -1011,7 +989,7 @@ public partial class PlayerWindow : FluentWindow
         StopActivationClickCompensation();
         _activationClickStartTick = 0;
         // 复位"该恢复到几倍速"的记录: 它只描述**本片**那次长按, 不该带到下一片
-        // (下一片起播速率由 _mp.Rate 自己决定, 这里只是清掉上一个手势的账)。
+        // (下一片起播速率由 _engine.Rate 自己决定, 这里只是清掉上一个手势的账)。
         _rateBeforeFastForward = 1.0f;
         RestoreVolumeAfterSeek();   // 上一片若停在 seek 静音中, 别把静音带进新片
         // 心跳间隔也要还原: 上一片可能停在了"跳转等待期"的 100ms 上没来得及还原
@@ -1027,13 +1005,6 @@ public partial class PlayerWindow : FluentWindow
         //   _loadGen 作废旧结果; 但闸门留着会让新片的第一次卡顿永远等不到重建。
         _stallPolicy.Reset();
         _stallRecoveryInFlight = false;
-        // 画面输出冻结自愈同样属于"这一片": 换片后重新观察新片的 DisplayedPictures,
-        // 上一片的恢复预算/在途闸/放弃提示都不能带过来。
-        _voutPolicy.Reset();
-        _voutRecoveryInFlight = false;
-        _lastVoutSampleAt = -1;
-        _voutGiveUpToasted = false;
-        _voutStatsUnavailableLogged = false;
         _backups.Clear();
         _playUrlDeadline = 0;
         _playUrlFetchedAt = 0;
@@ -1137,7 +1108,7 @@ public partial class PlayerWindow : FluentWindow
     {
         // 三连 / 关注 / 稍后再看等"上一条视频"的态
         nameof(_isLiked), nameof(_isFollowed), nameof(_isFavorited), nameof(_favBusy),
-        nameof(_favFoldersAid), nameof(_isInWatchLater), nameof(_watchLaterBusy), nameof(_isCoined),
+        nameof(_isInWatchLater), nameof(_watchLaterBusy), nameof(_isCoined),
         nameof(_likeCount), nameof(_coinCount), nameof(_favCount), nameof(_cacheDownloaded),
         // 播放源标识
         nameof(_isLocalPlayback), nameof(_isLive), nameof(_liveRoomId), nameof(_liveQn), nameof(_currentCid),
@@ -1174,7 +1145,6 @@ public partial class PlayerWindow : FluentWindow
         nameof(_startTimeRebuildRetried), nameof(_rebuiltViaStartTime),
         nameof(_eofFallbackToStartTried),
         nameof(_progressDragMoved),
-        nameof(_audioHealCheckAt),
         nameof(_volumeRestoreDeadline), nameof(_volumeRestoreTries),
         nameof(_lastLoadingRevealMs),
         // 卡顿检测
@@ -1182,9 +1152,6 @@ public partial class PlayerWindow : FluentWindow
         // 卡顿自愈与播放地址保鲜(2026-11-14, issue #81): 都属于"这一片" ——
         // 换片后重建预算、地址到期时间、在途闸全部要重来。
         nameof(_stallRecoveryInFlight),
-        // 画面输出冻结自愈(2026-11-22, issue #119): 采样时刻/在途闸/放弃提示都属于"这一片"。
-        nameof(_lastVoutSampleAt), nameof(_voutRecoveryInFlight),
-        nameof(_voutGiveUpToasted), nameof(_voutStatsUnavailableLogged),
         nameof(_playUrlDeadline), nameof(_playUrlFetchedAt),
         nameof(_urlRefreshAttemptAt), nameof(_urlRefreshInFlight),
         nameof(_playUrlRefreshedAt), nameof(_errorRecoveryTried),
@@ -1227,8 +1194,8 @@ public partial class PlayerWindow : FluentWindow
         nameof(_isReliableSeekSource),  // seek 可靠性标志: BuildMedia 按片源设置
         nameof(_dmClockRate),           // 弹幕时钟倍率: 换片后由 CalibrateDanmakuClock 重新校准
         nameof(_commentReturnRpid),     // 评论详情返回锚: 属于"上一条评论详情", 换片必须归零
-        nameof(_videoBackdropGuardTicks), // vout 底色守护计数: 3 秒自收尾的瞬态
-        nameof(_audioHealCheckAt),      // 音频自愈上次检查时刻: 跨片保持宽限意义, 不必清(见该字段)
+        // 画面冻住自愈的节流(2026-11-22, mpv): 窗口级, 换片不清(否则同一片会反复重建)
+        nameof(_videoStallRecoverAt),
         // 合集: 「这个视频有没有合集」属于"这一片"的属性, 换片必须重算。
         // 不清的话换了普通视频入口还挂着, 点开是个空面板。
         // (_currentSeasonEpisode / _season 是引用类型, 自检只审值类型与 string, 不在清单里;
@@ -1291,7 +1258,6 @@ public partial class PlayerWindow : FluentWindow
         // 清了就等于"换个视频弹幕又变回纯文字" —— 那是用户马上会报上来的 bug。
         nameof(_danmakuPill),
         nameof(_teardownDone),       // 拆解只做一次
-        nameof(_playerRegistered),   // 注册计数, 生命周期是窗口而非片源
         // 倍速弹层/窗口几何记忆(2026-11-03 未提交改动, 位置 2026-11-07)的窗口级状态
         nameof(_fillingSpeedMenu),   // 填充倍速列表时抑制 SelectionChanged, 纯 UI 瞬时闸
         nameof(_hasNormalPlacement), nameof(_placementSettling), nameof(_hasPlacementSettleSample), // 常规几何快照与稳定期(2026-11-14 重做)
@@ -1303,11 +1269,10 @@ public partial class PlayerWindow : FluentWindow
         //   会话什么时候作废由 EnsureAutoPlaySession(每次 LoadVideoAsync 开头)显式判定。
         nameof(_autoPlaySessionActive), nameof(_autoPlayOriginBvid), nameof(_autoPlayExpectedBvid),
         nameof(_autoPlayVideoChainBvid), nameof(_autoPlayVideoCursor), nameof(_autoPlayCountdown),
-        // 下面几个是引用类型(自检本来不审), 登记在这里是把"跨片保持"的语义固化下来:
+        // 下面三个是引用类型(自检本来不审), 登记在这里是把"跨片保持"的语义固化下来:
         //   _autoPlayPending 只在倒计时中存在(换片时由 CancelAutoPlayCountdown 收掉);
-        //   三个链则要活整场会话(分P 链每次加载都会按当前 P 重建)。
-        nameof(_autoPlayPending), nameof(_autoPlayPageChain), nameof(_autoPlaySeasonChain),
-        nameof(_autoPlayVideoChain),
+        //   两个链则要活整场会话。
+        nameof(_autoPlayPending), nameof(_autoPlaySeasonChain), nameof(_autoPlayVideoChain),
         // 番剧选集表(2026-11-19): 同一季连播几集都用它, 换片绝不能清 ——
         //   清了第二集就变成"普通视频", 选集面板与连播链一起消失。
         nameof(_bangumi),
@@ -1329,7 +1294,7 @@ public partial class PlayerWindow : FluentWindow
         //   真按住不放时换片本来就是不可能的操作, 清了也没有可观察差异。
         nameof(_videoGestureActive), nameof(_rightGestureActive),
         nameof(_danmakuClockAttached),
-        // 弹幕时钟的三个量: 靠 _mp.TimeChanged(约 4Hz)自动校准 —— 换片后新片一开播,
+        // 弹幕时钟的三个量: 靠 _engine.TimeChanged(约 4Hz)自动校准 —— 换片后新片一开播,
         //   下一次 TimeChanged 就把 _dmClockMedia 推到新片时间, 260ms 内自然收敛。
         //   ★ 特意**不**在 ResetForNewMedia 里清: 那会与 CalibrateDanmakuClock 抢写,
         //     而后者才是权威来源(2026-11-11 为修"暂停回跳"刚把权威收敛到它)。
@@ -1478,12 +1443,11 @@ public partial class PlayerWindow : FluentWindow
             FillQualityMenu(0);
             if (QualityText != null) QualityText.Text = "本地";
 
-            var media = new Media(_libVLC, path, FromType.FromPath);
-            if (_closing) { media.Dispose(); return; }
+            // 2026-11-22(mpv): 本地文件直接作为 Url 交给引擎, 不需要 Media/Uri 包装
             _lastPlayUrl = path;
             // 本地文件是单文件源, seek 一次到位(与 durl 合流单流同性质)
             _isReliableSeekSource = true;
-            PlayMedia(media);
+            PlayMedia(BuildMedia(path, null));
         }
         catch (Exception ex)
         {
@@ -1523,13 +1487,6 @@ public partial class PlayerWindow : FluentWindow
         // 覆盖层窗口(VideoView 的 ForegroundWindow)这时才建出来 —— 把键盘处理也挂上去,
         // 否则点过一次视频/控制栏之后快捷键就全哑了(见 HookOverlayKeyboard 的说明)
         HookOverlayKeyboard();
-        // ★ 2026-11-03: 尽早把视频宿主窗口治成近黑底(不等第一帧/Vout)。
-        //   放在 Loaded 优先级: 此时 VideoView 的模板与原生宿主窗口已经建好;
-        //   拿不到句柄也没关系, Vout/Playing 还会再调(见 StartVideoBackdropFix)。
-        _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
-        {
-            if (!_closing) ApplyHwndHostLetterboxBackground();
-        }));
         // ★ 不重复启动: 新窗口第一次打开时 PlayerService 已经先调过 PlayVideo(→LoadVideoAsync),
         //   Loaded 事件随后才到。没有这个闸门就会跑两遍详情/取流/测速, 甚至
         //   "先远端起播、下完再切本地"二次重启(2026-10-30 起播慢的隐藏原因之一)。
@@ -1604,7 +1561,7 @@ public partial class PlayerWindow : FluentWindow
             //   它已经处于选中态时 Checked 事件不会再触发, 新视频的评论就永远不加载 ——
             //   用户看到的就是"停在评论区、一片空白, 必须先点简介再点回来"(2026-10-30)。
             //   这里补一次(与取流并行, 不占起播时间)。
-            WriteLibVLCDebug($"\n[Load] 详情就绪 aid={_aid} cid={_currentCid} tabComments={TabComments?.IsChecked}\n");
+            PlayerLog.Write($"\n[Load] 详情就绪 aid={_aid} cid={_currentCid} tabComments={TabComments?.IsChecked}\n");
             if (TabComments?.IsChecked == true) _ = LoadCommentsAsync();
 
             // ★ 片段查询**立刻发起, 与下面"取播放地址 / 合流下载"并行** ——
@@ -1718,7 +1675,7 @@ public partial class PlayerWindow : FluentWindow
             _playUrlRefreshedAt = 0;
             _errorRecoveryTried = false;
             _stallPolicy.Reset();
-            WriteLibVLCDebug(
+            PlayerLog.Write(
                 $"\n[LoadVideo] bvid={_currentBvid} cid={_currentCid} qn={actualQn} url={url} audio={playAudio}\n");
 
             // 片段数据: 只落地"已经回来"的结果 —— 绝不为它推迟起播(见 BeforePlayApplySponsorAsync)
@@ -1727,7 +1684,7 @@ public partial class PlayerWindow : FluentWindow
             if (_closing || gen != _loadGen) return;
 
             // 起播耗时诊断: 每段都是**本段耗时**(不是累计), 与 [Playing] 的 first-frame 对齐看
-            WriteLibVLCDebug(
+            PlayerLog.Write(
                 $"\n[Timing] bvid={_currentBvid} detail={tDetail}ms " +
                 $"playurl={tPlayUrl - tDetail}ms remux={tRemux - tPlayUrl}ms " +
                 $"sponsor={tSponsor - tRemux}ms toPlay={sw.ElapsedMilliseconds}ms " +
@@ -1751,7 +1708,7 @@ public partial class PlayerWindow : FluentWindow
                               ResumePolicy.IsResumable(resumeMs, durMs);
             _resumeAfterSwitchMs = resumeValid ? resumeMs : 0;
             if (resumePlan != null)
-                WriteLibVLCDebug(
+                PlayerLog.Write(
                     $"[Resume] plan pos={resumeMs}ms source={resumePlan.Source} dur={durMs}ms " +
                     $"valid={resumeValid}\n");
             var started = false;
@@ -1809,35 +1766,27 @@ public partial class PlayerWindow : FluentWindow
     /// .NET 的 GC 一点都管不到。表现就是: 每看一个视频涨一块、关掉也不回落
     /// (2026-09-27 用户报的内存问题里就有这一份)。
     ///
-    /// 之前 6 个播放点全都是 `_mp.Play(new Media(...))` 直接把 Media 丢掉, 一个都没释放。
+    /// 之前 6 个播放点全都是 `_engine.Play(new Media(...))` 直接把 Media 丢掉, 一个都没释放。
     /// </summary>
-    private bool PlayMedia(Media media)
+    private bool PlayMedia(PlayerMedia media)
     {
         try
         {
-            // ★ 2026-11-22(issue #119): 所有新 input 都从这里走, 软解开关只在这一处加。
-            //   用**媒体级**选项而不是进程级 `--avcodec-hw`: ① 不需要重启应用;
-            //   ② 画面冻结自愈可以在运行中把后续 Media 切成软解, 不必重建 LibVLC 实例。
-            //   ★ aout 选项不能走媒体级(见 VlcCore.PrepareForNewPlayer), 但解码器是 input
-            //     的子对象, 会继承 Media 上的选项 —— 这条路径与 `:demux` / `:network-caching`
-            //     同类; 交付前需用探针复核原生日志确实从 D3D11VA 切到软件解码。
-            if (PlaybackCompatibility.ShouldDisableHardwareDecoding)
-            {
-                try { media.AddOption(":avcodec-hw=none"); } catch { /* 选项加不上就按原样播 */ }
-            }
             // ★ 2026-11-19(issue #88): 每次起一条新 input 都换代次。
             //   旧 input 排队中的 Playing/EndReached/TimeChanged 会因为这个比对失败被丢弃,
             //   不会再把"上一条播完了/上一条的时间"写到新片身上。
             _mediaEpoch++;
             // 首帧计时只用于诊断日志: 每次起播(含切清晰度/重播/直播)都会重置。
             _playWatch = Stopwatch.StartNew();
-            var ok = _mp.Play(media);
+            var ok = _engine.Play(media);
             if (!ok) _playWatch = null;   // 没播起来就别留一个永远等不到 Playing 的计时器
             return ok;
         }
-        finally
+        catch (Exception ex)
         {
-            try { media.Dispose(); } catch { /* 播放器持有它自己那份引用, 这里失败不影响播放 */ }
+            PlayerLog.Write($"[mpv] Play failed: {ex}\n");
+            _playWatch = null;
+            return false;
         }
     }
 
@@ -1848,109 +1797,42 @@ public partial class PlayerWindow : FluentWindow
     private const string PlayerUserAgent = HttpDefaults.UserAgent;
 
     /// <summary>
-    /// 构造带 CDN 头的 Media。url 既可能是在线地址(DASH 视频流 / durl 单流), 也可能是
-    /// 本地文件(离线缓存、或短视频的本地合流缓存)。
-    /// DASH 流音视频分离, 用 input-slave 挂音轨; 单文件源(durl 合流 / 本地文件)传 null。
+    /// 构造一次播放请求(引擎无关, 2026-11-22 mpv 迁移)。
     ///
-    /// ★★ 这里顺带决定两件事(2026-10-17 播放器手术):
-    ///   ① demuxer —— **走 BuildMedia 的源统一用 avformat**(见下方 2026-11-05 的尾部修复);
-    ///   ② <see cref="_isReliableSeekSource"/> —— 有没有挂 input-slave 就是判据。
-    /// 两条都只在这里设置一次, 别处不要再改(漏一处就会让看门狗按错的类型兜底)。
+    /// 与旧的 VLC 版本相比, 这里只保留**跨引擎有意义**的信息: 视频地址、DASH 音轨、
+    /// 起播位置、请求头、缓冲毫秒。VLC 专用的 input-slave / :demux=avformat / :start-time /
+    /// :network-caching / :http-reconnect 全部删除 —— mpv 自己处理这些, 也没有对应的缺陷。
     ///
-    /// 本地路径必须走 FromPath: `new Uri("C:\...\x.mp4")` 会把盘符当成协议名, 抛 UriFormatException。
+    /// ★ 本地路径直接作为 Url 传下去: mpv 的 loadfile 接受 Windows 路径, 不需要 Uri 包装
+    ///   (旧代码用 FromPath 绕 UriFormatException, 这里连 Uri 都不建)。
     /// </summary>
-    private Media BuildMedia(string url, string? audioUrl, long startMs = 0)
+    private PlayerMedia BuildMedia(string url, string? audioUrl, long startMs = 0)
     {
-        // B站 CDN 校验 Referer 和 User-Agent
-        var options = new List<string>
-        {
-            ":http-referrer=https://www.bilibili.com/",
-            ":http-user-agent=" + PlayerUserAgent,
-            // ★★★ 2026-11-14(issue #81): 长连接被 CDN 静默掐断后自己重连。
-            //   VLC 3 的 http access **默认不重连**(libhttp_plugin 里这个选项默认关),
-            //   连接一断读线程就永久阻塞 —— 表现就是"正在缓冲"卡死, 而且因为 access 没
-            //   报错, EncounteredError 也不会来, 上层连失败提示都拿不到。
-            //   ★ 对 DASH 同样有效: `:demux=avformat` 解析到的是 VLC 的 avcodec 模块
-            //     (shortcut=avformat, 已用 libvlc 3.0.24 原生日志实测确认), 它的 AVIO
-            //     桥仍然走 VLC 的 access, 不是 ffmpeg 自己的 http。
-            //   ★ 它只是"第一道保险": 真正静默(没有 RST)的断流它也无能为力,
-            //     兜底由 UpdateStallDetector 的卡顿自愈负责。
-            ":http-reconnect"
-        };
-
-        // ★★ 2026-11-05: 重建 Media 追 seek 目标时, 用 **:start-time** 让解复用器
-        //   在 open 阶段直接定位。相比"起播后再设一次 Time", 它不会撞上 "input 还没稳定
-        //   就二次 seek" 的窗口 —— 实测(探针 bd-probe-seekmode)起播即落在目标附近且继续推进。
-        //   只对网络流加; 本地文件的重建走原来的 Playing 后设 Time。
-        if (startMs > 0 && url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-            options.Add(":start-time=" +
-                        (startMs / 1000.0).ToString("0.###", CultureInfo.InvariantCulture));
-
-        // ★★★ 2026-10-17 播放器手术第 3 步: 统一 demuxer(2026-11-05 起所有源都用 avformat)。
-        //
-        //   【无音轨 ⇒ 单文件源】: 加 :demux=avformat。
-        //     实测(探针 bd-probe-muxed2): 合流单流配 avformat, 来回 7 跳全部准确
-        //     (偏差 0.9~2.2s)且画面持续推进; 不加则落点准但**跳完冻住**(推进 0ms)。
-        //
-        //   【DASH 双流 / 聆听音轨】: ★★★ 2026-11-05 起**也加** `:demux=avformat`。
-        //     这是"播到片尾最后几秒没声音"的真正修复:
-        //       · libvlc 自带的 mp4 demux 对 B 站这种 fMP4 有 bug —— **最后一整个分片
-        //         (sidx 的最后一段, 约 1.5~2.4s)根本读不出来**, 到分片边界就 EndReached。
-        //         实测 42s 的短片在 39.6s 结束、22 分钟的长片在 1315.5s 结束, 结尾
-        //         恰好是最后一段的长度; 而且 seek 进最后一段也一样结束(不是网络问题)。
-        //       · 换 avformat 后同一片源播到 1317.2s/1317.4s(只差 0.2s 的解码尾),
-        //         音轨与画面对齐, 片尾不再静音、进度条也能正常走满。
-        //     历史注释里"带 input-slave 加 avformat 会 seek 后 Ended"是 3.0.20 + 同进程
-        //     连开多个 LibVLC 的污染结论(bd-probe-muxed5 已平反)。当前 3.0.24 实测:
-        //     双流 + avformat 连续 6 次远跳(90/10/55/5/80/30%)全部存活、落点 1~2s,
-        //     43s/22min 的 H.264 与 HEVC 都验过。故不再区分, 统一走 avformat。
-        //
-        //   ★ 判据 `isListenAudio` 仍保留: 它只用于决定"这条 url 是音轨单流",
-        //     不参与 demuxer 选择; 保留它可读性更好, 也方便以后单独调聆听态。
+        // 单文件源(本地 / durl 合流)没有外部音轨; 看门狗仍用这个判据决定要不要重建兜底
         var isListenAudio = _isListenMode &&
                             string.Equals(url, _listenAudioUrl, StringComparison.Ordinal);
-        options.Add(":demux=avformat");
-        if (string.IsNullOrEmpty(audioUrl) && !isListenAudio)
-        {
-            // 单文件源: 没有 slave, seek 一发即准
-            _isReliableSeekSource = true;
-        }
-        else
-        {
-            // DASH 双流 / 聆听音轨单流: 远端分片 fMP4, 仍按"不可靠"处理
-            // (保留看门狗 + 重建兜底; avformat 只是把落点从"掉回开头"改善到 1~2s)
-            _isReliableSeekSource = false;
-            if (!string.IsNullOrEmpty(audioUrl))
-                options.Add(":input-slave=" + audioUrl);
-        }
+        _isReliableSeekSource = string.IsNullOrEmpty(audioUrl) && !isListenAudio;
 
-        if (!url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-        {
-            var local = new Media(_libVLC, url, FromType.FromPath);
-            foreach (var o in options) local.AddOption(o);
-            return local;
-        }
-
-        // 起播缓冲(2026-10-30 新增, 设置页「起播缓冲」): 只加给网络流。
-        // ★ 用**媒体级**选项而不是重建 LibVLC: 全局实例是进程单例, 改它等于要重启内核;
-        //   媒体级选项下一条视频就生效, 且能各走各的(直播也一样)。
-        // ★ 2026-11-01: 值不再直接取用户设置 —— 统一走 BufferPolicy(自动/手动两档),
-        //   直播/自动档的规则见 Services/BufferPolicy.cs。
         var isShortVideo = _totalMs > 0 && _totalMs <= 60_000;
-        // ★ 2026-11-14(issue #81): 「听视频」单独一档 —— 以前它因为 audioUrl==null 被
-        //   当成 VodSingle, 自动档在带宽富余时只给 500ms 预读, 挂着听几小时时一碰抖动
-        //   就 underrun(用户的报告正是"听视频时更容易卡")。音频的 2 秒缓存只有几十 KB。
         var kind = isListenAudio ? BufferMediaKind.ListenAudio
                  : string.IsNullOrEmpty(audioUrl) ? BufferMediaKind.VodSingle
                  : BufferMediaKind.VodDash;
         var cachingMs = BufferPolicy.Resolve(kind, url, isShortVideo,
             Svc.Settings.NetworkCachingMs, Svc.Settings.AutoBufferPolicy);
-        WriteLibVLCDebug($"[BufferPolicy] kind={kind} short={isShortVideo} nc={cachingMs}ms " +
+        PlayerLog.Write($"[BufferPolicy] kind={kind} short={isShortVideo} nc={cachingMs}ms " +
                          $"auto={Svc.Settings.AutoBufferPolicy}\n");
-        options.Add(":network-caching=" + cachingMs);
-        return new Media(_libVLC, new Uri(url), options.ToArray());
-    }
 
+        return new PlayerMedia
+        {
+            Url = url,
+            AudioUrl = audioUrl,
+            StartMs = startMs,
+            IsLive = _isLive,
+            Referer = _isLive ? "https://live.bilibili.com/" + _liveRoomId : "https://www.bilibili.com/",
+            UserAgent = PlayerUserAgent,
+            NetworkCacheMs = cachingMs,
+        };
+    }
     // ------------------------------------------------------------ 短视频本地合流(边播边下)
 
     /// <summary>后台合流任务。换片/切清晰度/关窗都要取消它 —— 否则会白下几十兆, 还可能把旧片写进新键</summary>

@@ -1,4 +1,5 @@
 using System;
+using BiliDesk.Playback;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -19,9 +20,6 @@ using System.Windows.Threading;
 using BiliDesk.Helpers;
 using BiliDesk.Models;
 using BiliDesk.Services;
-using LibVLCSharp.Shared;
-using LibVLCSharp.WPF;
-using MediaPlayer = LibVLCSharp.Shared.MediaPlayer;
 
 namespace BiliDesk.Views;
 
@@ -62,8 +60,7 @@ public partial class PlayerWindow : FluentWindow
     /// </summary>
     protected override FrameworkElement? ScaleRoot => InfoPanel;
 
-    private readonly LibVLC _libVLC;
-    private readonly MediaPlayer _mp;
+    private readonly PlayerEngineAdapter _engine;
     private readonly DispatcherTimer _progressTimer;
     private string _currentBvid = "";
     /// <summary>当前播的是离线缓存里的本地文件(没有 aid/cid, 也没有在线互动)</summary>
@@ -96,7 +93,7 @@ public partial class PlayerWindow : FluentWindow
     ///
     /// 为什么需要: LibVLC 的 `Position`/`Time` **不会**在设置之后立刻反映新位置 ——
     /// 它得先重建解复用器、把目标位置附近的片段拉回来才能报出新时间。而进度定时器每 500ms
-    /// 就会把 `_mp.Position` 回写到进度条上, 于是刚点完进度条就被"打回"到旧位置的刻度上,
+    /// 就会把 `_engine.Position` 回写到进度条上, 于是刚点完进度条就被"打回"到旧位置的刻度上,
     /// 用户看到的是"点了没反应", 过一会儿又突然跳过去。短视频(十几秒)尤其明显 ——
     /// 6 秒的视频里 0.5 秒的心跳间隔相当于整段时长的 8%。
     /// 宽限期内不参与回写, 并在这段时间里直接把滑块钉在跳转目标上。
@@ -113,7 +110,7 @@ public partial class PlayerWindow : FluentWindow
     ///   但没有画面」的根因。
     ///
     ///   机理(探针 bd-probe-eofseek 实锤):
-    ///     ① EOF 时 <see cref="OnEndReached"/> **刻意不调 `_mp.Stop()`**, 那条 input 就停在
+    ///     ① EOF 时 <see cref="OnEndReached"/> **刻意不调 `_engine.Stop()`**, 那条 input 就停在
     ///        ENDED 状态(实测 `state=Ended` / `vout=0`), vout 已被拆掉 —— 这正是"重播页"
     ///        需要一层不透明黑遮罩盖住白底的原因(见 RestoreVideoAreaBackground)。
     ///     ② 对一条 **ENDED 的 input** 发 seek, libvlc 只是把 `Time` 改成目标值当回执,
@@ -158,7 +155,7 @@ public partial class PlayerWindow : FluentWindow
 
     // --- 跳转看门狗 ---
     // LibVLC 的 seek 是异步的: 网络流上偶尔会"丢"一次跳转指令(解复用器重建失败/片段拉取慢),
-    // 表现为"拖了进度条要等好几秒甚至永远不动"。看门狗在跳转发出后盯着 _mp.Time,
+    // 表现为"拖了进度条要等好几秒甚至永远不动"。看门狗在跳转发出后盯着 _engine.Time,
     // 迟迟没到目标就重发一次(最多 SeekRetryMax 次), 等待太久就给出缓冲提示。
     private long _pendingSeekMs = -1;     // 待确认的跳转目标(毫秒), -1 = 没有
     private long _seekDeadline;           // 本次跳转的确认截止时刻(TickCount64)
@@ -398,36 +395,6 @@ public partial class PlayerWindow : FluentWindow
     /// <summary>一次自愈重建(含可能的重取地址)是否正在进行 —— 防同一段卡顿叠出两条重建</summary>
     private bool _stallRecoveryInFlight;
 
-    // ------------------------------------------------------------ 画面输出冻结的自愈
-    //
-    // ★★★ 2026-11-22(issue #119「鼠标点画面暂停时随机卡死」):
-    //   点画面与空格最终都走同一个 `_mp.Pause()`, 所以不是暂停逻辑的差异。真正的原因在
-    //   打包的 libvlc 3.0.24: 显示池需要超过 30 个 slice 时, 它对 NVIDIA 一律退回一个
-    //   “刚好够解码器用”的内部输出池; 暂停帧 + 显示缓冲帧把池占满后, 恢复时创建不出新的
-    //   DecoderOutputView —— 音频继续、画面永冻。
-    //   上游 VLC 3.0.25 才修(videolan/vlc#30187), NuGet 目前只有 3.0.24。
-    //   ⇒ 这里用 `MediaStats.DisplayedPictures`(vout 真正出帧的次数)做看门狗: 音频时钟在走、
-    //     displayed 却连续 4 秒不涨 ⇒ 判定画面停住, 用软解重建一次当前 input。
-    //     决策逻辑在 Services/VoutFreezePolicy.cs(纯逻辑, 可单测)。
-
-    /// <summary>画面冻结自愈的决策状态机</summary>
-    private readonly VoutFreezePolicy _voutPolicy = new();
-
-    /// <summary>一次画面冻结自愈是否正在进行(防和心跳/卡顿自愈叠出两条重建)</summary>
-    private bool _voutRecoveryInFlight;
-
-    /// <summary>上一次采样 MediaStats 的时刻(TickCount64; 心跳是 500ms, 这里降频到 1s)</summary>
-    private long _lastVoutSampleAt = -1;
-
-    /// <summary>本片是否已经提示过“自动恢复放弃”(只弹一次, 别每个心跳刷 Toast)</summary>
-    private bool _voutGiveUpToasted;
-
-    /// <summary>画面冻结自愈时的遮罩文案(与“正在缓冲”“网络卡顿”区分开, 便于日志与收尾判断)</summary>
-    private const string VoutRecoveringText = "画面卡住，正在恢复…";
-
-    /// <summary>MediaStats 采样间隔(毫秒)。1 秒足够判定 4 秒冻结, 又不给心跳添负担。</summary>
-    private const long VoutSampleIntervalMs = 1_000;
-
     // ------------------------------------------------------------ 播放地址保鲜
     //
     // ★ B 站 playurl 地址里带 deadline(Unix 秒), 实测有效期只有**约 2 小时**
@@ -486,7 +453,7 @@ public partial class PlayerWindow : FluentWindow
     //     已物理缺失 → 立刻再 EOF → 重播遮罩, 纯白等一趟。
     //   ★ 2026-11-05 之后这 10s 不再是为"B 站音轨缺口"留的(缺口是 demux bug, 已修);
     //     它现在的意义是"最后 10s 内任何提前 EOF 都不值得重建"(重建的黑屏比少几秒更糟)。
-    private long _lastKnownMs;            // TimeChanged 报告的最后位置(EOF 后 _mp.Time 会归零, 不能用)
+    private long _lastKnownMs;            // TimeChanged 报告的最后位置(EOF 后 _engine.Time 会归零, 不能用)
     private int _eofResumeCount;
     private long _lastEofResumeMs;
     private const int EofResumeMax = 3;
@@ -592,8 +559,6 @@ public partial class PlayerWindow : FluentWindow
     /// ★ 只增不清: 它是窗口级单调计数, 换片不清(否则旧事件可能"撞"回同一个值)。
     /// </summary>
     private volatile int _mediaEpoch;
-    // 是否已在 VlcCore 登记本窗口的 MediaPlayer(构造函数中途抛异常时可能没登记, 避免计数漂移)
-    private bool _playerRegistered;
 
     // --- 清晰度 ---
     /// <summary>
@@ -734,11 +699,11 @@ public partial class PlayerWindow : FluentWindow
     /// </summary>
     private void StartFastForward(float rate = FastForwardRate)
     {
-        if (_closing || _mp == null) return;
+        if (_closing || _engine == null) return;
         // 直播没有"加速往前放"这回事(本来就一直在最新处); 播完了也没有
         if (_isLive || _ended) return;
 
-        try { _rateBeforeFastForward = _mp.Rate; }
+        try { _rateBeforeFastForward = _engine.Rate; }
         catch { _rateBeforeFastForward = 1.0f; }
         if (_rateBeforeFastForward <= 0) _rateBeforeFastForward = 1.0f;
 
@@ -754,7 +719,7 @@ public partial class PlayerWindow : FluentWindow
         _isFastForwarding = true;
         // ★ 顺序: 先让弹幕时钟按新倍速落定当前值, 再真正 SetRate(同 OnSpeedClick 那条说明)
         SyncDanmakuClockRate(_fastForwardTarget);
-        try { _mp.SetRate(_fastForwardTarget); }
+        try { _engine.SetRate(_fastForwardTarget); }
         catch { StopFastForward(); return; }
         // ★★★ 2026-11-21 修"长按倍速时控制栏倍速与实际不同步": 控制栏那颗倍速按钮显示的
         //   是**当前实际播放速率**, 长按把它切成临时倍速之后必须一起改; 松手由 StopFastForward
@@ -770,11 +735,11 @@ public partial class PlayerWindow : FluentWindow
         // ★ 关窗路径不恢复速率: 那里 _closing 已置位, 而且这个窗口的 MediaPlayer
         //   马上就要被 Dispose —— 再去碰它是"访问已释放原生指针"的来源(0xc0000005),
         //   恢复了也没有意义(播放器跟窗口一起没了)。
-        if (_closing || _mp == null) return;
+        if (_closing || _engine == null) return;
         var back = _rateBeforeFastForward > 0 ? _rateBeforeFastForward : 1.0f;
         // 同 StartFastForward: 先落定弹幕时钟, 再改速率
         SyncDanmakuClockRate(back);
-        try { _mp.SetRate(back); } catch { /* 播放器已失效 */ }
+        try { _engine.SetRate(back); } catch { /* 播放器已失效 */ }
         // "不记忆"的另一半: 收尾把档位复位成默认 2x, 下次长按一定从 2x 起步
         _fastForwardTarget = FastForwardRate;
         // 控制栏倍速指示跟着回到原值(与 StartFastForward 的临时提速对称)。
@@ -782,8 +747,6 @@ public partial class PlayerWindow : FluentWindow
         //   "已经恢复了"而实际还在临时倍速上。
         UpdateSpeedText();
         // ★ 2026-10-31: 变速收尾也是音轨偶发掉线的暴露点(同 seek 后没声的机理)。
-        //   挂一次带宽限期的自愈检查, 命中才动手(见 HealAudioIfDead)。
-        HealAudioIfDead("fastforward-end");
     }
 
     /// <summary>

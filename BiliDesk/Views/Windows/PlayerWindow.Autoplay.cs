@@ -13,7 +13,7 @@ namespace BiliDesk.Views;
 /// 播放器 · **自动连播**(2026-11-19)。
 ///
 /// 分片职责: 「播完之后该播什么」的全部状态与动作。
-///   · 队列(按优先级): 多P 视频的下一个分P → 合集/番剧的下一集 → 打开视频时固定的「相关视频」;
+///   · 队列: 多P 的下一 P → 合集/番剧的下一集 → 打开视频时固定的「相关视频」列表;
 ///   · 倒计时: 播完后 5 秒换片, 「取消连播」随时能拦下;
 ///   · 会话: 用户手动换片一律作废重开(旧队列不再成立)。
 ///
@@ -28,7 +28,7 @@ namespace BiliDesk.Views;
 /// </summary>
 public partial class PlayerWindow : FluentWindow
 {
-    /// <summary>连播队列里的一项(多P 视频的一个分P、合集/番剧的一集, 或一条相关视频)。</summary>
+    /// <summary>连播队列里的一项(分P、合集/番剧的一集, 或一条相关视频)。</summary>
     private sealed class AutoPlayEntry
     {
         public AutoPlayEntry(string bvid, string title, string cover, long cid = 0)
@@ -40,14 +40,7 @@ public partial class PlayerWindow : FluentWindow
         }
 
         public string Bvid { get; }
-
-        /// <summary>
-        /// 分P 的 cid; **0 = 整条稿件**(合集/番剧/相关视频都是按 bvid 换整条)。
-        /// ★ 多P 视频的各个 P **bvid 完全相同**, 只有它能区分"下一段"是第几段,
-        ///   也是换片时传给 <c>LoadVideoAsync</c> 的那个参数(见 <see cref="SwitchToAutoPlayEntryAsync"/>)。
-        /// </summary>
         public long Cid { get; }
-
         public string Title { get; }
         /// <summary>封面地址 —— 倒计时那张圆角视频卡用它(Cover 附加属性负责解码与缓存)。</summary>
         public string Cover { get; }
@@ -83,7 +76,7 @@ public partial class PlayerWindow : FluentWindow
     /// <summary>倒计时表。★ DispatcherTimer 字段由 <c>StopAllTimers</c> 反射自动停, 不必登记。</summary>
     private DispatcherTimer? _autoPlayCountdownTimer;
 
-    /// <summary>多P 视频的「下一个 P」链(2026-11-22; 每次加载按当前 P 重建)。</summary>
+    /// <summary>多P 视频的「下一 P」链；每次加载按当前 cid 重建。</summary>
     private readonly List<AutoPlayEntry> _autoPlayPageChain = new();
 
     /// <summary>合集 / 番剧的"下一集..."链(FIFO: 取走一条就出队)。</summary>
@@ -157,18 +150,7 @@ public partial class PlayerWindow : FluentWindow
         }
     }
 
-    /// <summary>
-    /// 按"当前这一 P"重建分P链(2026-11-22)。
-    ///
-    /// ★ 为什么需要它: 多P 稿件的 bvid 不变、只换 cid, 但它**同样只有一条 bvid** ——
-    ///   既进不了合集链(合集链是"别的稿件"), 也进不了相关视频链(那是别的视频)。
-    ///   没有这条链时, 用户播完 P1 会直接跳到**相关视频**(用户报的问题)。
-    /// ★ 优先级最高(见 <see cref="PeekNextAutoPlay"/>): 多P 稿件的自然续播就是同一条
-    ///   稿件的下一段; 它的最后一 P 播完才轮到合集下一集 / 相关视频。
-    /// ★ 与合集链同款: 每次 <see cref="ApplyPages"/> 都**替换**而不是追加 —— 换到 P2 时
-    ///   剩下的就是 P3..N, 与"P1 时记下的链已经出队一项"结果一致, 不会重复播。
-    /// ★ 定位不上当前 P 就不建(返回空): 与其猜"下一段是哪一段", 不如不接。
-    /// </summary>
+    /// <summary>按当前 P 重建分P连播链，优先级高于合集与相关视频。</summary>
     private void ApplyAutoPlayPageChain()
     {
         _autoPlayPageChain.Clear();
@@ -186,12 +168,7 @@ public partial class PlayerWindow : FluentWindow
         {
             var page = _pages[i];
             if (page.Cid <= 0) continue;
-            // ★ 标题带上 P 序号: 倒计时卡片只有一行, 光凭 part 名看不出是第几段
-            //   (part 为空时更不能留白, 退回 "P2")。
-            // ★ 封面用同一条稿件的封面: 分P 共用一张, 卡片不至于空着。
-            var title = string.IsNullOrWhiteSpace(page.Part)
-                ? $"P{page.Page}"
-                : $"P{page.Page} · {page.Part}";
+            var title = string.IsNullOrWhiteSpace(page.Part) ? $"P{page.Page}" : $"P{page.Page} · {page.Part}";
             _autoPlayPageChain.Add(new AutoPlayEntry(_currentBvid, title, _coverUrl, page.Cid));
         }
     }
@@ -257,10 +234,7 @@ public partial class PlayerWindow : FluentWindow
 
     // ---------------------------------------------------------------- 取下一条
 
-    /// <summary>
-    /// 看一眼下一条是什么(不消费)。
-    /// 优先级: 分P 链 → 合集/番剧链 → 相关视频链。
-    /// </summary>
+    /// <summary>看一眼下一条是什么(不消费)。分P → 合集 → 相关视频。</summary>
     private bool PeekNextAutoPlay(out AutoPlayEntry? entry)
     {
         if (_autoPlayPageChain.Count > 0)
@@ -286,22 +260,19 @@ public partial class PlayerWindow : FluentWindow
     /// 真正消费掉这一条。
     /// ★ 只在"确实切过去了"时调用 —— 用户点了「取消连播」那一条必须还留在队列里,
     ///   否则重播之后再播完就凭空少了一条。
-    /// ★ 判"是不是队头"必须走 <see cref="AutoPlayPolicy.SameEntry"/>(bvid + cid):
-    ///   分P 链里每一项的 bvid 都一样, 只比 bvid 会删错位置。
     /// </summary>
     private void CommitAutoPlay(AutoPlayEntry entry)
     {
         if (CommitFromChain(_autoPlayPageChain, entry)) return;
         if (CommitFromChain(_autoPlaySeasonChain, entry)) return;
-        if (_autoPlayVideoCursor >= 0 && _autoPlayVideoCursor < _autoPlayVideoChain.Count)
+        if (_autoPlayVideoCursor >= 0 && _autoPlayVideoCursor < _autoPlayVideoChain.Count &&
+            AutoPlayPolicy.SameEntry(_autoPlayVideoChain[_autoPlayVideoCursor].Bvid,
+                _autoPlayVideoChain[_autoPlayVideoCursor].Cid, entry.Bvid, entry.Cid))
         {
-            var head = _autoPlayVideoChain[_autoPlayVideoCursor];
-            if (AutoPlayPolicy.SameEntry(head.Bvid, head.Cid, entry.Bvid, entry.Cid))
-                _autoPlayVideoCursor++;
+            _autoPlayVideoCursor++;
         }
     }
 
-    /// <summary>队头就是这一项才出队(不是队头说明中途换过队列, 什么都不做)。</summary>
     private static bool CommitFromChain(List<AutoPlayEntry> chain, AutoPlayEntry entry)
     {
         if (chain.Count == 0) return false;
@@ -354,7 +325,7 @@ public partial class PlayerWindow : FluentWindow
         _autoPlayCountdownTimer.Tick += OnAutoPlayCountdownTick;
         _autoPlayCountdownTimer.Start();
 
-        WriteLibVLCDebug($"[AutoPlay] 倒计时开始 → {entry.Bvid} {entry.Title}\n");
+        PlayerLog.Write($"[AutoPlay] 倒计时开始 → {entry.Bvid} {entry.Title}\n");
     }
 
     private void UpdateAutoPlayCountdownText()
@@ -431,7 +402,7 @@ public partial class PlayerWindow : FluentWindow
     {
         CancelAutoPlayCountdown();
         ShowEndNormalState();
-        WriteLibVLCDebug("[AutoPlay] 用户取消连播(该条仍留在队列)\n");
+        PlayerLog.Write("[AutoPlay] 用户取消连播(该条仍留在队列)\n");
     }
 
     /// <summary>「立即播放」: 跳过剩余倒计时。</summary>
@@ -447,13 +418,10 @@ public partial class PlayerWindow : FluentWindow
     /// <summary>
     /// 真正切到下一条: 停流 → 换 bvid/cid → 重建每片状态 → 加载。
     ///
-    /// ★ 分P 项(<c>entry.Cid &gt; 0</c>)只换 cid: bvid 是同一个稿件的, 改它会把弹幕游标 /
-    ///   历史进度 / 三连状态挂到别的稿件上(与 <see cref="SwitchToPageAsync"/> 同一条约束)。
-    ///   cid 必须传给 <see cref="LoadVideoAsync"/>(传 0 会落回 pages[0] ⇒ "点下一段却播回 P1")。
     /// ★ 复用 <c>_switchingSeasonEpisode</c> 闸门: 它与"点合集/选集里的一集"是同一件事
     ///   (换 bvid), 共用一个闸门才能挡住"倒计时刚响、用户又点了一集"导致两条
     ///   LoadVideoAsync 叠跑(后回来的覆盖前一个 ⇒ 点了 A 却播了 B)。
-    /// ★ `_mp.Stop()` 走 <see cref="StopPlayerAsync"/>: 它会阻塞约 1 秒(等解码/vout 线程退出),
+    /// ★ `_engine.Stop()` 走 <see cref="StopPlayerAsync"/>: 它会阻塞约 1 秒(等解码/vout 线程退出),
     ///   放 UI 线程上就是"倒计时结束那一刻窗口定格一下"。
     /// ★ 不调 <c>Svc.Player.PlayVideo</c>: 那条路在窗口不可复用时会**新建一个播放器窗口**,
     ///   而连播必须留在本窗口(与 SwitchToSeasonEpisodeAsync 同一个理由)。
@@ -473,7 +441,7 @@ public partial class PlayerWindow : FluentWindow
             _autoPlayExpectedBvid = entry.Bvid;
             CancelAutoPlayCountdown();
 
-            WriteLibVLCDebug($"[AutoPlay] 切换 → {entry.Bvid} cid={entry.Cid} {entry.Title}\n");
+            PlayerLog.Write($"[AutoPlay] 切换 → {entry.Bvid} cid={entry.Cid} {entry.Title}\n");
 
             await StopPlayerAsync();
             if (_closing) return;
