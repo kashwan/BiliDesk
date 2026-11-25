@@ -2610,7 +2610,7 @@
                                            而"0"挂在 tab 上反而像没加载出来)。 -->
                                     <RadioButton x:Name="TabComments" Grid.Column="1" GroupName="ContentTab"
                                                  Style="{StaticResource PlayerContentTabStyle}"
-                                                 Checked="TabComments_Checked" />
+                                                 Checked="TabComments_Checked">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock x:Name="TabCommentsText" Text="评论" FontSize="15"
                                                        VerticalAlignment="Center"
@@ -2628,6 +2628,7 @@
                                                            Foreground="{DynamicResource TextSecondaryBrush}" />
                                             </Border>
                                         </StackPanel>
+                                    </RadioButton>
                                     <!-- 视频合集入口(2026-10-02 新增; 2026-10-03 改成与 简介/评论 统一风格):
                                          无合集的视频整个按钮**隐藏**(不是禁用) —— 右侧信息栏只有 400px,
                                          一个常年灰着的按钮既占位又像是坏了, 而 B 站自己在没有合集时也不给入口。
