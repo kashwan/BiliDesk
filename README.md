@@ -131,7 +131,6 @@ libmpv 原生库**不进仓库**（约 122MB），需要自行下载并放到固
 > 本地源码构建按 [`docs/libmpv-build.md`](docs/libmpv-build.md) 记录的参考版本放置 DLL；
 > 发布工作流每次构建都会从 shinchiro 的最新 Release 解析 `mpv-dev-x86_64-v3-*.7z`，
 > 用 GitHub 提供的 digest 校验归档，并把实际 DLL SHA-256 写入发布脚本再校验一次。
-> 该 DLL 已被 `.gitignore` 排除，不会进入提交。
 
 完整发布（便携版 zip + Inno 安装器载荷）运行仓库根目录的 `发布.ps1`。
 
