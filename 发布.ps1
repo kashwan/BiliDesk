@@ -25,7 +25,7 @@ $PortableDir = Join-Path $Out "BiliDesk-便携版"
 $InstallerDir = Join-Path $Out "BiliDesk-安装器-files"
 # libmpv 是必需载荷: 缺失或哈希不符时直接失败, 避免打出"没有播放内核"的包。
 $LibMpvPath = Join-Path $Root "libmpv\win-x64\libmpv-2.dll"
-$LibMpvSha256 = "88504EE5560942A955405E99DFB5971368E4CF851321F36565BF2A667271DB1B"
+$LibMpvSha256 = "fd80c3f48015a6956b8b13c05fa1599a8e3df2d3c76e1d58ee19ccc2cdb56ce4"
 if (-not (Test-Path $LibMpvPath)) {
     throw "缺少 libmpv-2.dll: 请按 README 放到 $LibMpvPath"
 }

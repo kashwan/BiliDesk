@@ -103,7 +103,7 @@ dotnet build BiliDesk.csproj -c Release
 libmpv 原生库**不进仓库**（约 122MB），需要自行下载并放到固定位置：
 
 1. 从 [shinchiro 的 mpv Windows 构建](https://sourceforge.net/projects/mpv-player-windows/files/) 下载
-   `mpv-dev-x86_64-*.7z`（**基线 x86_64 版**，不要选 `-v3`，除非确认目标机器都支持 AVX2）；
+   `mpv-dev-x86_64-v3-*.7z`（**x86-64-v3 / AVX2 版**，需要 CPU 支持 AVX2）；
 2. 解压出其中的 `libmpv-2.dll`；
 3. 放到下面这个路径（目录不存在就新建）：
 
@@ -113,7 +113,7 @@ libmpv 原生库**不进仓库**（约 122MB），需要自行下载并放到固
 
 构建时会自动复制到输出目录；文件缺失时工程仍可构建，只是播放内核不可用。
 
-> 本项目固定使用 `mpv-dev-x86_64-20261111-git-bcde6b93cc`
+> 本项目固定使用 `mpv-dev-x86_64-v3-20261111-git-bcde6b93cc`
 > （mpv `v0.42.0-38-gbcde6b93c` / FFmpeg `N-128766-gcd4e96eb3`）。
 > SHA-256、许可与来源见 [`docs/libmpv-build.md`](docs/libmpv-build.md)。
 > 该 DLL 已被 `.gitignore` 排除，不会进入提交。
