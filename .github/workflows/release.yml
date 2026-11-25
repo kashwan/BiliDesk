@@ -31,19 +31,27 @@ jobs:
       - name: Install Inno Setup
         run: choco install innoSetup --no-progress -y
 
-      - name: Download pinned libmpv
+      - name: Download latest libmpv v3
+        shell: pwsh
         run: |
+          $release = Invoke-RestMethod -Headers @{ "User-Agent" = "BiliDesk-release" } `
+            -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
+          $asset = $release.assets | Where-Object {
+            $_.name -match '^mpv-dev-x86_64-v3-.*\.7z$' -and $_.digest -match '^sha256:'
+          } | Select-Object -First 1
+          if (-not $asset) { throw "No mpv-dev x86-64-v3 asset with digest in latest release" }
+          $expectedArchive = $asset.digest.Substring(7)
+          Write-Host "Using $($asset.name) ($expectedArchive)"
           New-Item -ItemType Directory -Force -Path libmpv\win-x64 | Out-Null
-          Invoke-WebRequest -Uri "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261111/mpv-dev-x86_64-v3-20261111-git-bcde6b93cc.7z" -OutFile "$env:RUNNER_TEMP\mpv-dev.7z"
-          $expected = "fd80c3f48015a6956b8b13c05fa1599a8e3df2d3c76e1d58ee19ccc2cdb56ce4"
-          $actual = (Get-FileHash "$env:RUNNER_TEMP\mpv-dev.7z" -Algorithm SHA256).Hash
-          if ($actual -ne "19D9BB4C5F8249F48C2413A0B7C473116552B8CF55404A67A5A568B2D8B09BCB") {
-            throw "mpv archive hash mismatch: $actual"
-          }
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$env:RUNNER_TEMP\mpv-dev.7z"
+          $actualArchive = (Get-FileHash "$env:RUNNER_TEMP\mpv-dev.7z" -Algorithm SHA256).Hash
+          if ($actualArchive -ne $expectedArchive) { throw "mpv archive hash mismatch: $actualArchive" }
           7z x "$env:RUNNER_TEMP\mpv-dev.7z" -o"$env:RUNNER_TEMP\mpv-dev" libmpv-2.dll -y | Out-Null
           Copy-Item "$env:RUNNER_TEMP\mpv-dev\libmpv-2.dll" libmpv\win-x64\libmpv-2.dll
           $dllHash = (Get-FileHash libmpv\win-x64\libmpv-2.dll -Algorithm SHA256).Hash
-          if ($dllHash -ne $expected) { throw "libmpv-2.dll hash mismatch: $dllHash" }
+          $script = Get-Content 发布.ps1 -Raw
+          $script = [regex]::Replace($script, '(\$LibMpvSha256 = ")[0-9A-Fa-f]{64}(")', "`${1}$dllHash`${2}")
+          Set-Content 发布.ps1 $script
 
       - name: Build and verify
         run: |
