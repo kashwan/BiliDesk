@@ -794,6 +794,8 @@ public partial class PlayerWindow : FluentWindow
     //     暂停/恢复由 `_engine.Paused` 冻结/解冻。既零 P/Invoke, 又跟得上真实媒体时间
     //     (seek 会在下一个 TimeChanged 立刻纠偏)。
     private readonly Stopwatch _dmWatch = Stopwatch.StartNew();
+    /// <summary>上次真正推进过弹幕的媒体时刻。同一帧 WPF 可能多次触发 Rendering。</summary>
+    private double _dmLastRenderClock = double.NaN;
     /// <summary>上次校准到的媒体时间(秒)</summary>
     private double _dmClockMedia;
     /// <summary>校准那一刻 <see cref="_dmWatch"/> 的毫秒读数 —— 走时的起点</summary>
@@ -1573,6 +1575,12 @@ public partial class PlayerWindow : FluentWindow
 
         // ★ 只读一次本地 Stopwatch, **一次原生调用都不做**(见 _dmWatch 那段说明)
         var now = DanmakuClock();
+        // WPF 一帧可能多次触发 Rendering(嵌入视频覆盖窗口时尤其容易)。同一个媒体时刻
+        // 重复写几十条弹幕的 TranslateTransform/Opacity 没有视觉收益, 只白占 UI 线程。
+        // 暂停时 now 不变, 这里也停写 —— 与"冻结位置"的目标一致, 恢复后 now 前进自然续上。
+        if (now == _dmLastRenderClock) return;
+        _dmLastRenderClock = now;
+
         var canvasWidth = DanmakuCanvas?.ActualWidth ?? 0;
         // 倒序删: 末尾先走完, 正好与"新弹幕追加在尾部"的写入方向相反, 不会出现漏删
         for (var i = _flying.Count - 1; i >= 0; i--)
