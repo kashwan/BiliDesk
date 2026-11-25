@@ -8,7 +8,7 @@ namespace BiliDesk.Playback;
 /// <summary>
 /// libmpv 实现(2026-11-22, feat/mpv-core)。
 ///
-/// 这一层的唯一职责: 把 <see cref="IPlayerEngine"/> 的语义翻译到 libmpv,
+/// 这一层的唯一职责: 把播放器的语义翻译到 libmpv,
 /// 以及把 mpv 的事件/属性翻译回上层熟悉的事件(TimeChanged / LengthChanged / Playing /
 /// Paused / EndReached / EncounteredError)。
 ///

@@ -5,7 +5,7 @@ namespace BiliDesk.Playback;
 
 /// <summary>
 /// 迁移期适配器(2026-11-22, feat/mpv-core): 给 PlayerWindow 提供它现在用的那套成员名,
-/// 内部全部转发到 <see cref="IPlayerEngine"/>(目前只有 mpv)。
+/// 内部全部转发到 <see cref="MpvEngine"/>。
 ///
 /// 为什么要这层:
 ///   PlayerWindow 有 171 处 `_mp.*` 调用, 直接改成新接口等于把"交互逻辑"整体重写一遍。
