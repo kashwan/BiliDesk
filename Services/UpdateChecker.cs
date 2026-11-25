@@ -101,7 +101,7 @@ public sealed class UpdateCheckException : Exception
 public static class UpdateChecker
 {
     /// <summary>Release 数据所在的仓库(owner/repo)。改名要连着 ReleasePageUrl 一起改。</summary>
-    public const string RepoOwner = "ABING1111";
+    public const string RepoOwner = "kashwan";
     public const string RepoName = "BiliDesk";
 
     /// <summary>releases/latest 网页地址(弹窗里「前往 GitHub 下载」按钮的落点)。</summary>

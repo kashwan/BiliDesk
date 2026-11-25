@@ -277,8 +277,8 @@ public class SettingsStore
     /// </summary>
     public bool OpenLinksInExternalBrowser { get; set; }
 
-    /// <summary>启动后自动检查更新(默认开; 关掉后仍可在设置页手动检查)</summary>
-    public bool AutoCheckUpdate { get; set; } = true;
+    /// <summary>启动后自动检查更新(默认关; 打开后可在设置页手动检查)</summary>
+    public bool AutoCheckUpdate { get; set; }
 
     /// <summary>用户点过「跳过此版本」的版本号(空 = 没跳过; 只影响自动检查, 见 UpdateChecker.AutoCheckAsync)</summary>
     public string SkippedVersion { get; set; } = "";

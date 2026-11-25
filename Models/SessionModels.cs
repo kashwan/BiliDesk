@@ -432,11 +432,11 @@ public class AppSettings
     public bool OpenLinksInExternalBrowser { get; set; }
 
     /// <summary>
-    /// 启动后自动检查更新(默认 true)。
+    /// 启动后自动检查更新(默认 false)。
     /// 检查是匿名的 GitHub Releases 请求, 不带任何账号信息; 关掉后仍可在设置页手动检查。
-    /// 老配置缺这个字段时保持初始化值 ⇒ "默认打开"自动成立, 不需要版本号兼容。
+    /// 老配置缺这个字段时保持初始化值 ⇒ "默认关闭"自动成立, 不需要版本号兼容。
     /// </summary>
-    public bool AutoCheckUpdate { get; set; } = true;
+    public bool AutoCheckUpdate { get; set; }
 
     /// <summary>
     /// 用户点过「跳过此版本」的版本号(如 "1.2.0")。空 = 没跳过任何版本。

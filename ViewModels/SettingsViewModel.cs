@@ -1356,7 +1356,7 @@ public class SettingsViewModel : ObservableObject
 
     // ----------------- 检查更新 -----------------
 
-    /// <summary>启动后自动检查更新(默认开; 关掉后仍可用下面的「检查更新」按钮手动查)</summary>
+    /// <summary>启动后自动检查更新(默认关; 关闭时仍可用下面的「检查更新」按钮手动查)</summary>
     public bool AutoCheckUpdate
     {
         get => Svc.Settings.AutoCheckUpdate;

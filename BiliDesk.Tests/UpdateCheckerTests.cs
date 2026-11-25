@@ -26,7 +26,7 @@ public class UpdateCheckerTests
   <entry>
     <id>tag:github.com,2008:Repository/123456/__TAG__</id>
     <updated>2026-11-20T10:00:00Z</updated>
-    <link rel="alternate" type="text/html" href="https://github.com/ABING1111/BiliDesk/releases/tag/__TAG__" />
+    <link rel="alternate" type="text/html" href="https://github.com/kashwan/BiliDesk/releases/tag/__TAG__" />
     <title>__TITLE__</title>
   </entry>
 </feed>
@@ -40,7 +40,7 @@ public class UpdateCheckerTests
 
         Assert.NotNull(info);
         Assert.Equal(Version.Parse(tag[1..]), info!.Version);
-        Assert.Equal($"https://github.com/ABING1111/BiliDesk/releases/tag/{tag}", info.ReleaseUrl);
+        Assert.Equal($"https://github.com/kashwan/BiliDesk/releases/tag/{tag}", info.ReleaseUrl);
         Assert.NotNull(info.PublishedAt);
     }
 
