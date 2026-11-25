@@ -7,11 +7,6 @@ on:
         description: 'Release tag (for example mpv-core-test-1)'
         required: true
         type: string
-      ref:
-        description: 'Source ref to build'
-        required: true
-        default: 'restructure-mpv-core'
-        type: string
 
 permissions:
   contents: write
@@ -22,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: restructure-mpv-core
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -34,10 +29,10 @@ jobs:
       - name: Download pinned libmpv
         run: |
           New-Item -ItemType Directory -Force -Path libmpv\win-x64 | Out-Null
-          Invoke-WebRequest -Uri "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261111/mpv-dev-x86_64-20261111-git-bcde6b93cc.7z" -OutFile "$env:RUNNER_TEMP\mpv-dev.7z"
-          $expected = "88504EE5560942A955405E99DFB5971368E4CF851321F36565BF2A667271DB1B"
+          Invoke-WebRequest -Uri "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261111/mpv-dev-x86_64-v3-20261111-git-bcde6b93cc.7z" -OutFile "$env:RUNNER_TEMP\mpv-dev.7z"
+          $expected = "fd80c3f48015a6956b8b13c05fa1599a8e3df2d3c76e1d58ee19ccc2cdb56ce4"
           $actual = (Get-FileHash "$env:RUNNER_TEMP\mpv-dev.7z" -Algorithm SHA256).Hash
-          if ($actual -ne "273c079b11ea5575822f972756f4c9a71149a5c10130353abeb8586738938452") {
+          if ($actual -ne "273C079B11EA5575822F972756F4C9A71130353ABEB8586738938452") {
             throw "mpv archive hash mismatch: $actual"
           }
           7z x "$env:RUNNER_TEMP\mpv-dev.7z" -o"$env:RUNNER_TEMP\mpv-dev" libmpv-2.dll -y | Out-Null
