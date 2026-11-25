@@ -7,6 +7,11 @@ on:
         description: 'Release tag (for example mpv-core-test-1)'
         required: true
         type: string
+      ref:
+        description: 'Source ref to build'
+        required: true
+        default: 'restructure-mpv-core'
+        type: string
 
 permissions:
   contents: write
@@ -17,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: restructure-mpv-core
+          ref: ${{ inputs.ref }}
 
       - uses: actions/setup-dotnet@v4
         with:
