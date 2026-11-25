@@ -49,9 +49,11 @@ jobs:
           7z x "$env:RUNNER_TEMP\mpv-dev.7z" -o"$env:RUNNER_TEMP\mpv-dev" libmpv-2.dll -y | Out-Null
           Copy-Item "$env:RUNNER_TEMP\mpv-dev\libmpv-2.dll" libmpv\win-x64\libmpv-2.dll
           $dllHash = (Get-FileHash libmpv\win-x64\libmpv-2.dll -Algorithm SHA256).Hash
-          $script = Get-Content 发布.ps1 -Raw
-          $script = [regex]::Replace($script, '(\$LibMpvSha256 = ")[0-9A-Fa-f]{64}(")', "`${1}$dllHash`${2}")
-          Set-Content 发布.ps1 $script
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE "发布.ps1"
+          $bytes = [System.IO.File]::ReadAllBytes($scriptPath)
+          $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+          $text = [regex]::Replace($text, '(\$LibMpvSha256 = ")[0-9A-Fa-f]{64}(")', "`${1}$dllHash`${2}")
+          [System.IO.File]::WriteAllBytes($scriptPath, [System.Text.Encoding]::UTF8.GetBytes($text))
 
       - name: Build and verify
         run: |
