@@ -33,7 +33,7 @@ public class VersionConsistencyTests
     [Fact]
     public void AppVersion_与csproj一致()
     {
-        var csproj = ReadAllText(RepoRoot, "BiliDesk", "BiliDesk.csproj");
+        var csproj = ReadAllText(RepoRoot, "BiliDesk.csproj");
         var m = Regex.Match(csproj, @"<Version>([\d\.]+)</Version>");
         Assert.True(m.Success, "BiliDesk.csproj 里没有 <Version> 节点");
         Assert.Equal(BiliDesk.App.AppVersion, m.Groups[1].Value);

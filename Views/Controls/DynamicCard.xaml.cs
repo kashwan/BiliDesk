@@ -61,6 +61,7 @@ public partial class DynamicCard : UserControl
             _expanded = false;
             _menu = null;
             ContextMenu = null;
+            MoreButton.IsChecked = false;
             // 虚拟化回收: 上一条是展开态时, 复用到下一条必须复位, 否则新卡片一进来就是"全文"态
             if (ContentTextBlock != null) ContentTextBlock.Visibility = Visibility.Visible;
             if (ContentRichText != null)
@@ -313,10 +314,21 @@ public partial class DynamicCard : UserControl
 
     private void UpdateVideoHeight()
     {
-        var w = VideoHost.ActualWidth;
-        if (w <= 0) return;
-        VideoHost.Height = Math.Min(w * 9 / 16, 405);
+        FitVideoHost(VideoHost, 405);
+        FitVideoHost(OrigVideoHost, 405);
     }
+
+    /// <summary>封面块按 16:9 定高(宽度撑满时高度跟着走, 否则封面会被裁成长条 —— issue #122)。</summary>
+    private static void FitVideoHost(Border host, double maxHeight)
+    {
+        var w = host.ActualWidth;
+        if (w <= 0) return;
+        var h = Math.Min(w * 9 / 16, maxHeight);
+        if (double.IsNaN(host.Height) || Math.Abs(host.Height - h) > 0.5) host.Height = h;
+    }
+
+    private void OnOrigVideoHostSizeChanged(object sender, SizeChangedEventArgs e)
+        => FitVideoHost(OrigVideoHost, 405);
 
     private void OnVideoEnter(object sender, MouseEventArgs e) => PlayOverlay.Opacity = 1;
     private void OnVideoLeave(object sender, MouseEventArgs e) => PlayOverlay.Opacity = 0;
@@ -328,6 +340,12 @@ public partial class DynamicCard : UserControl
         _menu ??= BuildMenu();
         ContextMenu = _menu;
         if (sender is UIElement target) _menu.PlacementTarget = target;
+        if (_menu.IsOpen)
+        {
+            _menu.IsOpen = false;
+            return;
+        }
+        MoreButton.IsChecked = true;
         _menu.IsOpen = true;
     }
 

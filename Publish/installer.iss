@@ -40,7 +40,7 @@ ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 ; 应用是 x64-only
 PrivilegesRequired=admin
-SetupIconFile=..\BiliDesk\Assets\app.ico
+SetupIconFile=..\Assets\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 ; 安装向导语言。Inno 默认不带简体中文语言包 —— 想要中文向导的话：

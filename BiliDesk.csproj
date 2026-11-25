@@ -15,6 +15,7 @@
     <Product>BiliDesk</Product>
     <Version>1.8.6</Version>
     <PlatformTarget>x64</PlatformTarget>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <!--
       RollForward=Major: 框架依赖版(安装器)在机器上没有 .NET 10 桌面运行时、
       但装了更高大版本(如 .NET 11)时, 允许直接跑在上面, 不再强求用户装对应版本的
@@ -41,6 +42,11 @@
 
   <ItemGroup>
     <Resource Include="Assets\app.png" />
+  </ItemGroup>
+
+  <!-- 根目录展平后, 默认 Compile glob 会把同级 BiliDesk.Tests 的源码也算进主程序。 -->
+  <ItemGroup>
+    <Compile Include="**\*.cs" Exclude="BiliDesk.Tests\**\*.cs;bin\**\*.cs;obj\**\*.cs;**\*.g.cs" />
   </ItemGroup>
 
   <ItemGroup>
