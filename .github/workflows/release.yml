@@ -37,7 +37,7 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261111/mpv-dev-x86_64-v3-20261111-git-bcde6b93cc.7z" -OutFile "$env:RUNNER_TEMP\mpv-dev.7z"
           $expected = "fd80c3f48015a6956b8b13c05fa1599a8e3df2d3c76e1d58ee19ccc2cdb56ce4"
           $actual = (Get-FileHash "$env:RUNNER_TEMP\mpv-dev.7z" -Algorithm SHA256).Hash
-          if ($actual -ne "273C079B11EA5575822F972756F4C9A71130353ABEB8586738938452") {
+          if ($actual -ne "19D9BB4C5F8249F48C2413A0B7C473116552B8CF55404A67A5A568B2D8B09BCB") {
             throw "mpv archive hash mismatch: $actual"
           }
           7z x "$env:RUNNER_TEMP\mpv-dev.7z" -o"$env:RUNNER_TEMP\mpv-dev" libmpv-2.dll -y | Out-Null
