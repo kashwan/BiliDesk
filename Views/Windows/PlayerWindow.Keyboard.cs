@@ -354,9 +354,9 @@ public partial class PlayerWindow : FluentWindow
     ///        合计 340ms, 2026-09-30 删)与 FluentWindow 的整窗 Scale+淡入(2026-10-02 删)
     ///        都不存在了。现在这个窗口一切换就是"改布局 + 最大化", 剩下的动效由 DWM 负责。
     ///
-    /// ★ 2026-11-03: 全屏不再压"全屏黑幕"。LibVLC 重新协商 vout 时的白底空窗改由
+    /// ★ 2026-11-03: 全屏不再压"全屏黑幕"。视频输出重新协商时的白底空窗改由
     ///   原生宿主窗口治理(见 VideoBackdropInterop.EnsureLetterboxVideoHost), 所以下面只保留
-    ///   "窗口底色先黑"与 `StartVideoBackdropFix()` 两条 —— 前者挡 WPF 缝隙, 后者刷原生底色。
+    ///   "窗口底色先黑"一条 —— 它负责挡住 WPF 缝隙。
     ///
     /// 窗口现在**始终**是 WindowStyle=None + WindowChrome 的自绘标题栏, 所以全屏不再靠
     /// 切换 WindowStyle 实现(之前那套 `None + Maximized` 会让自绘标题栏和系统框打架),

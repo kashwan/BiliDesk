@@ -112,8 +112,6 @@ public partial class PlayerWindow : FluentWindow
         WritePlacementLog("enter-mini",
             $"=({Left:0.##},{Top:0.##},{Width:0.##},{Height:0.##})");
 
-        // vout 会按新尺寸重建, 新的 Static 子窗口要重新治一次(同进全屏)
-        StartVideoBackdropFix();
         ResumeBackdropAfterResize();
     }
 
@@ -145,7 +143,6 @@ public partial class PlayerWindow : FluentWindow
         RestoreNormalPlacementAfterMini();
 
         // 还原后的几何要等稳定期结束才允许被重新采(此时采到的就是刚还原的这份, 结果一致)
-        StartVideoBackdropFix();
         ResumeBackdropAfterResize();
         WritePlacementLog("exit-mini",
             $"=({Left:0.##},{Top:0.##},{Width:0.##},{Height:0.##})");

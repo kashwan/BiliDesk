@@ -90,7 +90,7 @@ public partial class PlayerWindow : FluentWindow
             // ★★★ 上面那两层**都盖不住视频区**:
             //   VideoView 是 HwndHost(airspace), 画在所有 WPF 元素之上, 而"视频区那层
             //   黑底 Grid"是它的**父容器** —— 父容器画不到子 HWND 上面。
-            //   视频区内部的白底改由原生宿主窗口治理(见 StartVideoBackdropFix 的调用),
+            //   mpv 用 HwndHost/wid 直接渲染视频区, 不再往视频区父容器上压黑布。
             //   不再往 VideoAreaRoot 上压黑布。
 
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
@@ -134,10 +134,10 @@ public partial class PlayerWindow : FluentWindow
             //   在这里补会因为窗口还是 Maximized 而被跳过, 退全屏后就没动画了。
             //   (重复按钮的克制现在靠去掉 WS_SYSMENU, 不再靠摘 WS_CAPTION。)
 
-            // ★★ 退出全屏后 libvlc 会按新尺寸**重建 vout**, 那里面的 `Static` 子窗口是新的,
+            // ★★ 退出全屏后视频输出会按新尺寸重建, 那里面的 `Static` 子窗口是新的,
             //   之前设的近黑类背景刷跟着旧窗口一起没了 ⇒ 视频区边缘又露出白(用户报的
             //   "先全屏再退全屏, 播放器页面部分出现白色区域")。
-            //   所以这里必须重刷一次(和起播后那次同一个入口, 见 ApplyHwndHostLetterboxBackground)。
+            //   所以这里必须重刷一次。
 
             // 根网格底色还给主题(与 ApplyChrome 同理: 缩回过程露出的边角要主题色)
             RootGrid.SetResourceReference(BackgroundProperty, "AppBackgroundBrush");
@@ -174,11 +174,10 @@ public partial class PlayerWindow : FluentWindow
     //
     // ★★ 2026-11-03: 原先这里有一整套"改窗口大小时把手势层压黑"的遮罩
     //   (ArmFullscreenCover / ArmResizeCover / ArmMaximizeCover + _resizeHold 闸)。
-    //   它确实能挡住 LibVLC vout 重协商时的白底, 但代价是拖动/最大化/全屏期间
+    //   它确实能挡住视频输出重协商时的白底, 但代价是拖动/最大化/全屏期间
     //   整个视频区变成一块黑布。
     //   ⇒ 现在改为在原生宿主窗口上根治: 给 Static 加 WS_CLIPCHILDREN + 子类化填近黑,
-    //     见 Helpers/VideoBackdropInterop.EnsureLetterboxVideoHost 与
-    //     PlayerWindow.ApplyHwndHostLetterboxBackground。
+    //     由 mpv 的 HwndHost/wid 渲染路径直接处理。
     //   ★ 不要再把这里的黑布加回来 —— 它挡的只是表象, 而且会让"改大小"看起来像黑屏。
     //   ★ EOF(播完)那一层黑不受影响, 见 OnEndReached / RestoreVideoAreaBackground。
 

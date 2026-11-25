@@ -124,7 +124,7 @@ public partial class PlayerWindow : FluentWindow
     /// ★ cid 必须传给 LoadVideoAsync: 0 会落回 pages[0], "回到刚才那个分P"就变成回到 P1。
     /// ★ 番剧分集表要一起恢复: 条目录了打开那一刻生效的 _bangumi, 这里写回去,
     ///   选集面板与"播完自动下一集"才会跟着回来(普通视频读到 null, 与手动换片一致)。
-    /// ★ 用 <see cref="StopPlayerAsync"/> 而不是 _mp.Stop(): 前者在后台等解码/vout 线程退出,
+    /// ★ 用 <see cref="StopPlayerAsync"/> 而不是直接 Stop(): 前者在后台等解码/输出线程退出,
     ///   当前线程不会定格 ~1 秒(与自动连播换片同款)。
     /// </summary>
     private async Task SwitchToHistoryEntryAsync(PlayerHistoryEntry entry)
@@ -135,7 +135,7 @@ public partial class PlayerWindow : FluentWindow
         _switchingHistory = true;
         try
         {
-            WriteLibVLCDebug(
+            PlayerLog.Write(
                 $"[History] 切换 → {entry.Kind} bvid={entry.Bvid} cid={entry.Cid} " +
                 $"room={entry.RoomId} {entry.Title}\n");
 
