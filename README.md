@@ -97,7 +97,7 @@
 ```powershell
 git clone https://github.com/ABING1111/BiliDesk.git
 cd BiliDesk
-dotnet build BiliDesk/BiliDesk.csproj -c Release
+dotnet build BiliDesk.csproj -c Release
 ```
 
 libmpv 原生库**不进仓库**（约 122MB），需要自行下载并放到固定位置：
@@ -108,7 +108,7 @@ libmpv 原生库**不进仓库**（约 122MB），需要自行下载并放到固
 3. 放到下面这个路径（目录不存在就新建）：
 
    ```text
-   BiliDesk/libmpv/win-x64/libmpv-2.dll
+   libmpv/win-x64/libmpv-2.dll
    ```
 
 构建时会自动复制到输出目录；文件缺失时工程仍可构建，只是播放内核不可用。

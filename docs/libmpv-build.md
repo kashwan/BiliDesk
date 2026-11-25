@@ -10,7 +10,7 @@
 | 架构 | x86-64 基线（PE machine `0x8664`，未启用 x86-64-v3 指令集） |
 | 运行时文件 | `libmpv-2.dll`（121,789,952 字节） |
 | SHA-256 | `88504EE5560942A955405E99DFB5971368E4CF851321F36565BF2A667271DB1B` |
-| 本地放置 | `BiliDesk\libmpv\win-x64\libmpv-2.dll`（已 gitignore，不入库） |
+| 本地放置 | `libmpv\win-x64\libmpv-2.dll`（已 gitignore，不入库） |
 
 ## 许可
 

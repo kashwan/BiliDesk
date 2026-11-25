@@ -24,7 +24,7 @@ $Out = Join-Path $Root "Publish"
 $PortableDir = Join-Path $Out "BiliDesk-便携版"
 $InstallerDir = Join-Path $Out "BiliDesk-安装器-files"
 # libmpv 是必需载荷: 缺失或哈希不符时直接失败, 避免打出"没有播放内核"的包。
-$LibMpvPath = Join-Path $Root "BiliDesk\libmpv\win-x64\libmpv-2.dll"
+$LibMpvPath = Join-Path $Root "libmpv\win-x64\libmpv-2.dll"
 $LibMpvSha256 = "88504EE5560942A955405E99DFB5971368E4CF851321F36565BF2A667271DB1B"
 if (-not (Test-Path $LibMpvPath)) {
     throw "缺少 libmpv-2.dll: 请按 README 放到 $LibMpvPath"
@@ -57,13 +57,13 @@ foreach ($dir in @($PortableDir, $InstallerDir)) {
 }
 
 Write-Host "== 1/5 便携版(自包含 + 压缩) =="
-dotnet publish (Join-Path $Root "BiliDesk\BiliDesk.csproj") -c Release -r win-x64 `
+dotnet publish (Join-Path $Root "BiliDesk.csproj") -c Release -r win-x64 `
     --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true `
     -o $PortableDir
 if ($LASTEXITCODE -ne 0) { throw "便携版发布失败" }
 
 Write-Host "== 2/5 安装器载荷(依赖 .NET 10+ 桌面运行时) =="
-dotnet publish (Join-Path $Root "BiliDesk\BiliDesk.csproj") -c Release -r win-x64 `
+dotnet publish (Join-Path $Root "BiliDesk.csproj") -c Release -r win-x64 `
     --self-contained false -p:PublishSingleFile=false `
     -o $InstallerDir
 if ($LASTEXITCODE -ne 0) { throw "安装器载荷发布失败" }
@@ -81,7 +81,7 @@ Write-Host "== 3/5 校验 WPF 原生库版本(防旧 .NET 残留混进包) =="
 # 只查 WPF 那三个 dll: 它们的文件版本大版本号必须等于 app 目标框架的大版本(net10.0 → 10)。
 # D3DCompiler_47_cor3.dll 是 Windows SDK 的、vcruntime140_cor3.dll 是 VC 运行时的,
 # 版本号与 .NET 无关, 排除在外。
-$tfm = ([xml](Get-Content (Join-Path $Root "BiliDesk\BiliDesk.csproj") -Raw)).Project.PropertyGroup |
+$tfm = ([xml](Get-Content (Join-Path $Root "BiliDesk.csproj") -Raw)).Project.PropertyGroup |
        ForEach-Object { $_.TargetFramework } | Where-Object { $_ } | Select-Object -First 1
 if (-not ($tfm -match '^net(\d+)\..*$')) { throw "无法从 csproj 读出 TargetFramework: $tfm" }
 $expectedMajor = [int]$Matches[1]
