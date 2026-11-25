@@ -23,6 +23,8 @@ public static class PlayerLog
     private const long MaxBytes = 4 * 1024 * 1024;
 
     private static readonly object Gate = new();
+    private static readonly System.Text.StringBuilder Pending = new();
+    private static DateTime _pendingAt;
 
     public static string FilePath { get; } = Path.Combine(AppPaths.DataDir, "player-debug.txt");
 
@@ -31,15 +33,33 @@ public static class PlayerLog
     {
         if (string.IsNullOrEmpty(content)) return;
         var stamped = WithTimestamps(content, DateTime.Now);
+        lock (Gate)
+        {
+            Pending.Append(stamped);
+            if (_pendingAt == default) _pendingAt = DateTime.Now;
+            if (Pending.Length >= 16 * 1024 || DateTime.Now - _pendingAt >= TimeSpan.FromSeconds(1))
+                FlushLocked();
+        }
+    }
+
+    /// <summary>把缓冲日志一次性落盘; 播放器关窗与进程退出时调用。</summary>
+    public static void Flush()
+    {
+        lock (Gate) FlushLocked();
+    }
+
+    private static void FlushLocked()
+    {
+        if (Pending.Length == 0) return;
+        var text = Pending.ToString();
+        Pending.Clear();
+        _pendingAt = default;
         try
         {
-            lock (Gate)
-            {
-                Directory.CreateDirectory(AppPaths.DataDir);
-                var info = new FileInfo(FilePath);
-                if (info.Exists && info.Length > MaxBytes) Rotate();
-                File.AppendAllText(FilePath, stamped, Encoding.UTF8);
-            }
+            Directory.CreateDirectory(AppPaths.DataDir);
+            var info = new FileInfo(FilePath);
+            if (info.Exists && info.Length > MaxBytes) Rotate();
+            File.AppendAllText(FilePath, text, Encoding.UTF8);
         }
         catch
         {

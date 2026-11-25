@@ -114,6 +114,7 @@ public sealed class MpvPlayer : IDisposable
                      ("eof-reached", MpvNative.FormatFlag),
                      ("idle-active", MpvNative.FormatFlag),
                      ("estimated-frame-number", MpvNative.FormatInt64),
+                     ("video-codec", MpvNative.FormatString),
                  })
         {
             MpvNative.mpv_observe_property(_handle, 0, name, format);

@@ -405,6 +405,7 @@ public partial class App : Application
         DynamicNotifyService.Instance.Stop();
         // 播放进度: 退出前把内存里的最后一次位置落盘(播放器关窗时通常已经写过, 这里是兜底)。
         Svc.PlaybackProgress.Flush();
+        BiliDesk.Services.PlayerLog.Flush();
         // 设置是"异步合并写"的(见 SettingsStore.Save), 退出前把还在队列里的最后一次写入落盘,
         // 否则刚改完设置就退出会丢(表现是"改了的选项下次启动又变回去了")
         Svc.Settings.Flush();

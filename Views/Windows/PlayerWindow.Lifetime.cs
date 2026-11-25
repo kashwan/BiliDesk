@@ -231,6 +231,7 @@ public partial class PlayerWindow : FluentWindow
         // 主动松掉"占地大"的那几处引用, 再请求一次回收 + 把空出来的物理页交还系统。
         // 顺序不能反: 先松引用, 紧接着那次回收才有东西可收 —— 对用户就是"关掉视频内存数字马上掉"。
         ReleaseHeavyContent();
+        PlayerLog.Flush();
         MemoryTrim.RequestTrimAndRelease();
         // 把焦点/激活权交还主窗口, 避免关闭后主界面不响应输入。
         // 但如果此刻已经有新的播放器窗口接管(_window 已指向别人), 就绝不能抢焦点 ——

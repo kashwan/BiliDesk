@@ -36,8 +36,8 @@ public sealed class PlayerVideoView : HwndHost
     private Window? _overlay;
     private Window? _owner;
     private HwndSource? _ownerSource;
+    private HwndSource? _hostSource;
     private IntPtr _overlayHwnd;
-    private DispatcherTimer? _timer;
     private object? _overlayContent;
     private bool _surfaceReadyRaised;
 
@@ -79,11 +79,18 @@ public sealed class PlayerVideoView : HwndHost
         if (SurfaceHandle == IntPtr.Zero)
             throw new InvalidOperationException("创建视频宿主窗口失败: " + Marshal.GetLastWin32Error());
 
+        _hostSource = HwndSource.FromHwnd(SurfaceHandle);
+        _hostSource?.AddHook(HostWndProc);
         return new HandleRef(this, SurfaceHandle);
     }
 
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
+        if (_hostSource != null)
+        {
+            try { _hostSource.RemoveHook(HostWndProc); } catch { }
+            _hostSource = null;
+        }
         if (hwnd.Handle != IntPtr.Zero) DestroyWindow(hwnd.Handle);
         SurfaceHandle = IntPtr.Zero;
     }
@@ -108,10 +115,10 @@ public sealed class PlayerVideoView : HwndHost
         };
         _overlay.Show();
 
-        // ★ 2026-11-22: 拖动主窗口时覆盖层必须**逐帧**跟随, 100ms 轮询会明显"分离"。
-        //   这里直接挂 owner 的窗口消息(WM_MOVE/WM_SIZE/WM_WINDOWPOSCHANGED),
-        //   并用 GetWindowRect(宿主 HWND) + SetWindowPos 在**物理像素**上同步,
-        //   完全不经过 WPF 的 Left/Top(它有额外的布局延迟)。
+        // ★ 拖动主窗口时覆盖层必须逐帧跟随: 挂 owner 与宿主 HWND 的窗口消息,
+        //   用 GetWindowRect + SetWindowPos 在物理像素上同步, 不经 WPF 的 Left/Top。
+        //   不用 DispatcherTimer 轮询: 控件自己的 timer 不在 PlayerWindow.StopAllTimers
+        //   的反射范围, 关窗时容易残留并拖住窗口对象。
         _owner = owner;
         _ownerSource = HwndSource.FromHwnd(new WindowInteropHelper(owner).Handle);
         _ownerSource?.AddHook(OwnerWndProc);
@@ -119,9 +126,6 @@ public sealed class PlayerVideoView : HwndHost
         owner.SizeChanged += OnOwnerGeometryChanged;
         owner.StateChanged += OnOwnerGeometryChanged;
 
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-        _timer.Tick += (_, _) => SyncOverlayBounds();
-        _timer.Start();
         SyncOverlayBounds();
 
         if (!_surfaceReadyRaised)
@@ -133,9 +137,6 @@ public sealed class PlayerVideoView : HwndHost
 
     private void DetachOverlay()
     {
-        _timer?.Stop();
-        _timer = null;
-
         if (_owner != null)
         {
             try
@@ -170,6 +171,9 @@ public sealed class PlayerVideoView : HwndHost
     /// 主窗口的移动/缩放消息: 在拖动(模态 move loop)期间也会同步到达,
     /// 用它把覆盖层窗口"钉"在视频区上, 避免出现"控制栏和画面分离"。
     /// </summary>
+    private IntPtr HostWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        => OwnerWndProc(hwnd, msg, wParam, lParam, ref handled);
+
     private IntPtr OwnerWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         switch (msg)

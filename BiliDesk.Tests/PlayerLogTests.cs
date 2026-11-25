@@ -28,4 +28,13 @@ public class PlayerLogTests
     {
         Assert.Equal("", PlayerLog.WithTimestamps("", DateTime.Now));
     }
+
+    [Fact]
+    public void Flush_清空缓冲后可重复调用()
+    {
+        PlayerLog.Flush();
+        PlayerLog.Write("flush-test\n");
+        PlayerLog.Flush();
+        PlayerLog.Flush();
+    }
 }

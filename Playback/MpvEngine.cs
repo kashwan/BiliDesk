@@ -23,6 +23,7 @@ public sealed class MpvEngine : IDisposable
     private readonly TimeChangeThrottle _timeThrottle = new();
     private readonly Action<string>? _log;
     private long _frameNumber = -1;
+    private string? _videoCodec;
     private long _stallWindowAt = -1;
     private long _stallWindowTimeMs = -1;
     private long _stallWindowFrame = -1;
@@ -225,7 +226,7 @@ public sealed class MpvEngine : IDisposable
     /// </summary>
     private void CheckVideoStall(long timeMs)
     {
-        if (string.IsNullOrEmpty(_player.GetString("video-codec")))
+        if (string.IsNullOrEmpty(_videoCodec))
         {
             _stallWindowAt = -1;
             _stallStreak = 0;
@@ -299,18 +300,13 @@ public sealed class MpvEngine : IDisposable
         VideoStalled?.Invoke(this, EventArgs.Empty);
     }
 
-    private long ReadFrameNumber()
-    {
-        var text = _player.GetString("estimated-frame-number");
-        var value = long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : -1;
-        _frameNumber = value;
-        return value;
-    }
+    private long ReadFrameNumber() => _frameNumber;
 
     private void OnFileLoaded(object? sender, EventArgs e)
     {
         if (_disposed) return;
         _state = PlayerState.Playing;
+        _videoCodec = _player.GetString("video-codec");
         var requested = _player.GetString("hwdec");
         var current = _player.GetString("hwdec-current");
         _log?.Invoke($"[mpv] file-loaded hwdec={requested}/{current} " +
@@ -382,6 +378,9 @@ public sealed class MpvEngine : IDisposable
             }
             case "estimated-frame-number":
                 _frameNumber = e.Value is long f ? f : _frameNumber;
+                break;
+            case "video-codec":
+                _videoCodec = e.Value as string;
                 break;
             case "duration":
             {
