@@ -33,7 +33,8 @@
 
 - 上游基线：[`ABING1111/BiliDesk`](https://github.com/ABING1111/BiliDesk) 的 `main`；仅选择性 cherry-pick 与 mpv 分支无关的修复，不整支合并。
 - 技术来源：[`ABING1111/BiliDesk#117`](https://github.com/ABING1111/BiliDesk/pull/117)（`YuiYuK1:feat/mpv-core`）。该 PR 仍是 Draft，本发行线在其基础上重构并继续独立维护。
-- 本仓库 `main` 仅用于 GitHub Actions 的 `workflow_dispatch` 入口；源码、发布和默认构建 ref 都是 `restructure-mpv-core`。
+- 本仓库默认分支与唯一源码/发布分支都是 `restructure-mpv-core`；GitHub Actions 的 `workflow_dispatch` 入口也从该默认分支读取。
+- `main` 保留为历史/CI 过渡分支，不再用于源码发布。
 - 上游旧版本 tag/Release 仅作历史记录；当前安装包只从本发行线产生。
 
 ## ✨ 功能特性

@@ -7,6 +7,11 @@ on:
         description: 'Release tag (for example mpv-core-test-1)'
         required: true
         type: string
+      ref:
+        description: 'Source ref to build'
+        required: true
+        default: 'restructure-mpv-core'
+        type: string
 
 permissions:
   contents: write
@@ -17,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: restructure-mpv-core
+          ref: ${{ inputs.ref }}
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -26,19 +31,29 @@ jobs:
       - name: Install Inno Setup
         run: choco install innoSetup --no-progress -y
 
-      - name: Download pinned libmpv
+      - name: Download latest libmpv v3
+        shell: pwsh
         run: |
+          $release = Invoke-RestMethod -Headers @{ "User-Agent" = "BiliDesk-release" } `
+            -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
+          $asset = $release.assets | Where-Object {
+            $_.name -match '^mpv-dev-x86_64-v3-.*\.7z$' -and $_.digest -match '^sha256:'
+          } | Select-Object -First 1
+          if (-not $asset) { throw "No mpv-dev x86-64-v3 asset with digest in latest release" }
+          $expectedArchive = $asset.digest.Substring(7)
+          Write-Host "Using $($asset.name) ($expectedArchive)"
           New-Item -ItemType Directory -Force -Path libmpv\win-x64 | Out-Null
-          Invoke-WebRequest -Uri "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261111/mpv-dev-x86_64-20261111-git-bcde6b93cc.7z" -OutFile "$env:RUNNER_TEMP\mpv-dev.7z"
-          $expected = "88504EE5560942A955405E99DFB5971368E4CF851321F36565BF2A667271DB1B"
-          $actual = (Get-FileHash "$env:RUNNER_TEMP\mpv-dev.7z" -Algorithm SHA256).Hash
-          if ($actual -ne "273C079B11EA5575822F972756F4C9A71130353ABEB8586738938452") {
-            throw "mpv archive hash mismatch: $actual"
-          }
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$env:RUNNER_TEMP\mpv-dev.7z"
+          $actualArchive = (Get-FileHash "$env:RUNNER_TEMP\mpv-dev.7z" -Algorithm SHA256).Hash
+          if ($actualArchive -ne $expectedArchive) { throw "mpv archive hash mismatch: $actualArchive" }
           7z x "$env:RUNNER_TEMP\mpv-dev.7z" -o"$env:RUNNER_TEMP\mpv-dev" libmpv-2.dll -y | Out-Null
           Copy-Item "$env:RUNNER_TEMP\mpv-dev\libmpv-2.dll" libmpv\win-x64\libmpv-2.dll
           $dllHash = (Get-FileHash libmpv\win-x64\libmpv-2.dll -Algorithm SHA256).Hash
-          if ($dllHash -ne $expected) { throw "libmpv-2.dll hash mismatch: $dllHash" }
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE "发布.ps1"
+          $bytes = [System.IO.File]::ReadAllBytes($scriptPath)
+          $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+          $text = [regex]::Replace($text, '(\$LibMpvSha256 = ")[0-9A-Fa-f]{64}(")', "`${1}$dllHash`${2}")
+          [System.IO.File]::WriteAllBytes($scriptPath, [System.Text.Encoding]::UTF8.GetBytes($text))
 
       - name: Build and verify
         run: |
