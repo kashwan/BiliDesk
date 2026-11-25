@@ -15,7 +15,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white&style=flat-square)](#-从源码构建)
 [![License](https://img.shields.io/github/license/kashwan/BiliDesk?style=flat-square)](LICENSE)
 
-[下载](https://github.com/kashwan/BiliDesk/releases/latest) · [功能特性](#-功能特性) · [快捷键](#-快捷键) · [从源码构建](#-从源码构建)
+[下载](https://github.com/kashwan/BiliDesk/releases/latest) · [mpv 内核版说明](https://github.com/kashwan/BiliDesk/tree/restructure-mpv-core#-仓库关系与维护方式) · [功能特性](#-功能特性) · [快捷键](#-快捷键) · [从源码构建](#-从源码构建)
 
 <br>
 
@@ -28,6 +28,8 @@
 
 > [!NOTE]
 > 本项目是 [`kashwan/BiliDesk`](https://github.com/kashwan/BiliDesk) 的 `restructure-mpv-core` 独立发行线：已移除 VLC，只保留 mpv 播放内核；源码目录在仓库根目录，不使用原仓库 `main` 的嵌套结构。
+>
+> 如果你是从上游 VLC 版搜过来的：请直接看 [本分支 README](https://github.com/kashwan/BiliDesk/tree/restructure-mpv-core) 或 [正式安装包](https://github.com/kashwan/BiliDesk/releases/latest)；GitHub 搜索通常只索引上游仓库，fork 分支不容易被搜到。
 
 ## 🔀 仓库关系与维护方式
 
