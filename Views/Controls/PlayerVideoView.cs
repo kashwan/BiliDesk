@@ -40,6 +40,7 @@ public sealed class PlayerVideoView : HwndHost
     private IntPtr _overlayHwnd;
     private object? _overlayContent;
     private bool _surfaceReadyRaised;
+    private bool _overlaySyncQueued;
 
     public PlayerVideoView()
     {
@@ -165,7 +166,26 @@ public sealed class PlayerVideoView : HwndHost
         _overlayHwnd = IntPtr.Zero;
     }
 
-    private void OnOwnerGeometryChanged(object? sender, EventArgs e) => SyncOverlayBounds();
+    private void OnOwnerGeometryChanged(object? sender, EventArgs e)
+    {
+        SyncOverlayBounds();
+        QueueDeferredOverlaySync();
+    }
+
+    /// <summary>
+    /// 窗口状态切换(全屏/最大化/还原)时宿主 HWND 常在下一轮渲染才到位：
+    /// 当拍读到的矩形会落后一拍。排一次 Render 优先级补同步，覆盖层与画面不再慢半拍。
+    /// </summary>
+    private void QueueDeferredOverlaySync()
+    {
+        if (_overlaySyncQueued || _owner == null || _overlay == null) return;
+        _overlaySyncQueued = true;
+        _owner.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+        {
+            _overlaySyncQueued = false;
+            SyncOverlayBounds();
+        }));
+    }
 
     /// <summary>
     /// 主窗口的移动/缩放消息: 在拖动(模态 move loop)期间也会同步到达,
