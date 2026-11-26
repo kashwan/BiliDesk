@@ -66,7 +66,7 @@ jobs:
       - name: Compile installer
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc /DMyAppVersion=1.8.6 Publish\installer.iss
+          & $iscc /DMyAppVersion=1.8.8 Publish\installer.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
           powershell -ExecutionPolicy Bypass -File 发布.ps1 -FixIntegrity
 

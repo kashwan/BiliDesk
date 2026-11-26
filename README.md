@@ -97,7 +97,7 @@
 
 ## 📥 下载安装
 
-前往 [**Releases**](https://github.com/kashwan/BiliDesk/releases/latest) 获取该分支的 mpv-core 测试包：
+前往 [**Releases**](https://github.com/kashwan/BiliDesk/releases/latest) 获取该分支的 mpv-only 正式发行包：
 
 | 发行包 | 说明 |
 | :--- | :--- |
