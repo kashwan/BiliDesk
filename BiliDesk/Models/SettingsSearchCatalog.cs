@@ -198,7 +198,7 @@ public static class SettingsSearchCatalog
             new(TabAbout, TabTitles[TabAbout], "更新", "检查更新",
                 "更新 升级 检查 新版本"),
             new(TabAbout, TabTitles[TabAbout], "更新", "更新镜像源",
-                "更新 镜像 加速 github 代理 proxy 更新源"),
+                "更新 镜像 开关 自定义 镜像地址 加速 github 代理 proxy 更新源"),
             new(TabAbout, TabTitles[TabAbout], "更新", "版本号",
                 "版本 版本号 version"),
             new(TabAbout, TabTitles[TabAbout], "问题诊断", "导出诊断报告",

@@ -289,8 +289,17 @@ public class SettingsStore
     /// <summary>启动后自动检查更新(默认开; 关掉后仍可在设置页手动检查)</summary>
     public bool AutoCheckUpdate { get; set; } = true;
 
-    /// <summary>更新镜像源(空 = 直连 GitHub; 前缀或含 {url} 的模板, 见 UpdateChecker.MirrorUrl)</summary>
+    /// <summary>解析后的生效镜像前缀(空 = 直连 GitHub), 由开关+预设+自定义地址计算</summary>
     public string UpdateMirror { get; set; } = "";
+
+    /// <summary>是否启用更新镜像(默认 false = 直连 GitHub)</summary>
+    public bool UpdateMirrorEnabled { get; set; }
+
+    /// <summary>镜像预设: gh-proxy / ghfast / ghproxy / 自定义</summary>
+    public string UpdateMirrorPreset { get; set; } = "ghfast";
+
+    /// <summary>自定义镜像地址(仅预设=自定义时生效; 支持前缀或含 {url} 的模板)</summary>
+    public string UpdateMirrorCustom { get; set; } = "";
 
     /// <summary>用户点过「跳过此版本」的版本号(空 = 没跳过; 只影响自动检查, 见 UpdateChecker.AutoCheckAsync)</summary>
     public string SkippedVersion { get; set; } = "";
@@ -974,7 +983,25 @@ public class SettingsStore
         CloseToTray = s.CloseToTray;
         OpenLinksInExternalBrowser = s.OpenLinksInExternalBrowser;
         AutoCheckUpdate = s.AutoCheckUpdate;
-        UpdateMirror = (s.UpdateMirror ?? "").Trim();
+        UpdateMirrorEnabled = s.UpdateMirrorEnabled;
+        UpdateMirrorPreset = s.UpdateMirrorPreset is "gh-proxy" or "ghfast" or "ghproxy" or "自定义" ? s.UpdateMirrorPreset : "";
+        UpdateMirrorCustom = (s.UpdateMirrorCustom ?? "").Trim();
+        var legacyMirror = (s.UpdateMirror ?? "").Trim();
+        if (UpdateMirrorPreset.Length == 0 || (!UpdateMirrorEnabled && legacyMirror.Length > 0))
+        {
+            // 旧配置只有 UpdateMirror: 迁移成开关+预设/自定义, 原行为不变
+            UpdateMirrorPreset = legacyMirror switch
+            {
+                "" => "ghfast",
+                "https://gh-proxy.com/" or "https://gh-proxy.com" => "gh-proxy",
+                "https://ghfast.top/" or "https://ghfast.top" => "ghfast",
+                "https://ghproxy.net/" or "https://ghproxy.net" => "ghproxy",
+                _ => "自定义"
+            };
+            UpdateMirrorCustom = UpdateMirrorPreset == "自定义" ? legacyMirror : "";
+            UpdateMirrorEnabled = legacyMirror.Length > 0;
+        }
+        UpdateMirror = UpdateMirrorEnabled ? ResolveUpdateMirrorPrefix(UpdateMirrorPreset, UpdateMirrorCustom) : "";
         SkippedVersion = s.SkippedVersion ?? "";
         // 失败提示的节流时间: 未来时间只可能来自改系统时钟/手改配置 ——
         // 留着会让失败提示永久不再出现, 一律归 null(与 UpdateFailurePolicy 的兜底一致)。
@@ -1275,6 +1302,9 @@ public class SettingsStore
         OpenLinksInExternalBrowser = OpenLinksInExternalBrowser,
         AutoCheckUpdate = AutoCheckUpdate,
         UpdateMirror = UpdateMirror,
+        UpdateMirrorEnabled = UpdateMirrorEnabled,
+        UpdateMirrorPreset = UpdateMirrorPreset,
+        UpdateMirrorCustom = UpdateMirrorCustom,
         SkippedVersion = SkippedVersion,
         LastUpdateFailureNoticeUtc = LastUpdateFailureNoticeUtc,
         NoLogin1080P = NoLogin1080P,
@@ -1605,12 +1635,28 @@ public class SettingsStore
         Save();
     }
 
-    /// <summary>改"更新镜像源"并落盘(空串 = 直连 GitHub)</summary>
-    public void SetUpdateMirror(string value)
+    /// <summary>镜像预设 → 前缀(自定义取手填地址; 未知预设/空地址 = 直连)</summary>
+    public static string ResolveUpdateMirrorPrefix(string? preset, string? custom) => (preset ?? "").Trim() switch
     {
-        var next = (value ?? "").Trim();
-        if (string.Equals(UpdateMirror, next, StringComparison.Ordinal)) return;
-        UpdateMirror = next;
+        "gh-proxy" => "https://gh-proxy.com/",
+        "ghfast" => "https://ghfast.top/",
+        "ghproxy" => "https://ghproxy.net/",
+        "自定义" => (custom ?? "").Trim(),
+        _ => ""
+    };
+
+    /// <summary>改更新镜像配置并落盘(开关 + 预设 + 自定义地址); UpdateMirror 只存解析后的生效值</summary>
+    public void SetUpdateMirror(bool enabled, string preset, string custom)
+    {
+        var nextPreset = preset is "gh-proxy" or "ghfast" or "ghproxy" or "自定义" ? preset : "ghfast";
+        var nextCustom = (custom ?? "").Trim();
+        var nextMirror = enabled ? ResolveUpdateMirrorPrefix(nextPreset, nextCustom) : "";
+        if (UpdateMirrorEnabled == enabled && UpdateMirrorPreset == nextPreset
+            && UpdateMirrorCustom == nextCustom && UpdateMirror == nextMirror) return;
+        UpdateMirrorEnabled = enabled;
+        UpdateMirrorPreset = nextPreset;
+        UpdateMirrorCustom = nextCustom;
+        UpdateMirror = nextMirror;
         Save();
     }
 

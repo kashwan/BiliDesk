@@ -1407,20 +1407,47 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                            <TextBlock Text="更新镜像源" Style="{StaticResource SettingsRowTitleStyle}" />
+                            <TextBlock Text="使用更新镜像源" Style="{StaticResource SettingsRowTitleStyle}" />
+                            <TextBlock Text="开启后检查更新与下载通过镜像访问 GitHub，关闭则直连"
+                                       Style="{StaticResource SettingsRowDescStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <CheckBox Grid.Column="1" Style="{StaticResource SettingsToggleStyle}"
+                                  VerticalAlignment="Center"
+                                  IsChecked="{Binding UseUpdateMirror, Mode=TwoWay}" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsRowDivider}" />
+                    <Grid Style="{StaticResource SettingsRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                            <TextBlock Text="镜像源" Style="{StaticResource SettingsRowTitleStyle}" />
                             <TextBlock Text="{Binding UpdateMirrorHint}" Style="{StaticResource SettingsRowDescStyle}"
                                        TextWrapping="Wrap" />
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Width="260" VerticalAlignment="Center">
-                            <ComboBox Style="{StaticResource SettingsComboStyle}"
-                                      ItemsSource="{Binding UpdateMirrorOptions}"
-                                      SelectedItem="{Binding UpdateMirrorPreset, Mode=TwoWay}" />
-                            <TextBox Margin="0,6,0,0"
-                                     Style="{StaticResource FluentTextBoxStyle}"
-                                     Text="{Binding UpdateMirror, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                                     Visibility="{Binding IsCustomUpdateMirror, Converter={StaticResource BoolToVis}}"
-                                     ToolTip="支持前缀(https://gh-proxy.com/)或含 {url} 的模板" />
+                        <ComboBox Grid.Column="1" Width="260" VerticalAlignment="Center"
+                                  Style="{StaticResource SettingsComboStyle}"
+                                  ItemsSource="{Binding UpdateMirrorOptions}"
+                                  SelectedItem="{Binding UpdateMirrorPreset, Mode=TwoWay}"
+                                  IsEnabled="{Binding UseUpdateMirror}" />
+                    </Grid>
+                    <Border Style="{StaticResource SettingsRowDivider}"
+                            Visibility="{Binding IsCustomUpdateMirror, Converter={StaticResource BoolToVis}}" />
+                    <Grid Style="{StaticResource SettingsRowStyle}"
+                          Visibility="{Binding IsCustomUpdateMirror, Converter={StaticResource BoolToVis}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                            <TextBlock Text="自定义镜像地址" Style="{StaticResource SettingsRowTitleStyle}" />
+                            <TextBlock Text="支持前缀（https://gh-proxy.com/）或含 {url} 的模板"
+                                       Style="{StaticResource SettingsRowDescStyle}" TextWrapping="Wrap" />
                         </StackPanel>
+                        <TextBox Grid.Column="1" Width="260" VerticalAlignment="Center"
+                                 Style="{StaticResource FluentTextBoxStyle}"
+                                 Text="{Binding UpdateMirrorCustom, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
                     </Grid>
                     <Border Style="{StaticResource SettingsRowDivider}" />
                     <Grid Style="{StaticResource SettingsRowStyle}">
