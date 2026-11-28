@@ -27,7 +27,7 @@
 > 本项目为非官方、非商业的开源软件，与哔哩哔哩官方无任何关联；视频内容与版权归哔哩哔哩及各 UP 主所有。
 
 > [!NOTE]
-> 本项目是 [`kashwan/BiliDesk`](https://github.com/kashwan/BiliDesk) 的 `restructure-mpv-core` 独立发行线：已移除 VLC，只保留 mpv 播放内核；源码目录在仓库根目录，不使用原仓库 `main` 的嵌套结构。
+> 本项目是 [`kashwan/BiliDesk`](https://github.com/kashwan/BiliDesk) 的 `restructure-mpv-core` mpv 分支：已移除 VLC，只保留 mpv 播放内核；源码目录在仓库根目录，不使用原仓库 `main` 的嵌套结构。
 
 ## 🔀 仓库关系与维护方式
 

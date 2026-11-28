@@ -83,10 +83,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag }}
-          name: BiliDesk ${{ inputs.tag }} · mpv-only 独立发行线
+          name: BiliDesk ${{ inputs.tag }} · mpv 分支
           prerelease: false
           body: |
-            这不是上游 `ABING1111/BiliDesk` 的官方发布，而是 `kashwan/BiliDesk` 的 `restructure-mpv-core` 独立发行线。
+            这是 BiliDesk 的 mpv 分支版本，基于 [`ABING1111/BiliDesk`](https://github.com/ABING1111/BiliDesk)。
 
             - 播放内核：libmpv，已移除 VLC；使用 shinchiro x86-64-v3 / AVX2 构建，需要 CPU 支持 AVX2。
             - 合入上游 1.8.8 之后的评论、播放器、下载、搜索、私信、诊断等更新，并按 mpv 分支完成兼容适配。
