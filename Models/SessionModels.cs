@@ -452,11 +452,17 @@ public class AppSettings
     /// </summary>
     public bool AutoCheckUpdate { get; set; }
 
-    /// <summary>
-    /// 更新镜像源(空 = 直连 GitHub)。支持前缀(https://gh-proxy.com/)或 {url} 模板。
-    /// ★ 与 Services/SettingsStore.cs 的同名属性是读写契约, 两处必须一致。
-    /// </summary>
+    /// <summary>解析后的生效镜像前缀(空 = 直连), 由开关+预设+自定义地址算出; UpdateChecker 只读它</summary>
     public string UpdateMirror { get; set; } = "";
+
+    /// <summary>是否启用更新镜像(默认 false = 直连 GitHub)</summary>
+    public bool UpdateMirrorEnabled { get; set; }
+
+    /// <summary>镜像预设: gh-proxy / ghfast / ghproxy / 自定义</summary>
+    public string UpdateMirrorPreset { get; set; } = "ghfast";
+
+    /// <summary>自定义镜像地址(仅预设=自定义时生效; 支持前缀或含 {url} 的模板)</summary>
+    public string UpdateMirrorCustom { get; set; } = "";
 
     /// <summary>
     /// 用户点过「跳过此版本」的版本号(如 "1.2.0")。空 = 没跳过任何版本。

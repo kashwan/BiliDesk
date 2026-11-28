@@ -102,6 +102,18 @@ public class UpdateCheckerTests
     }
 
     [Theory]
+    [InlineData("gh-proxy", "", "https://gh-proxy.com/")]
+    [InlineData("ghfast", "", "https://ghfast.top/")]
+    [InlineData("ghproxy", "", "https://ghproxy.net/")]
+    [InlineData("自定义", " https://kkgithub.com/{url} ", "https://kkgithub.com/{url}")]
+    [InlineData("自定义", "", "")]
+    [InlineData("", "https://x/", "")]
+    public void 镜像预设解析(string preset, string custom, string expected)
+    {
+        Assert.Equal(expected, SettingsStore.ResolveUpdateMirrorPrefix(preset, custom));
+    }
+
+    [Theory]
     [InlineData(404, false, null)]
     [InlineData(403, false, UpdateCheckFailureKind.Http)]
     [InlineData(403, true, UpdateCheckFailureKind.RateLimited)]
