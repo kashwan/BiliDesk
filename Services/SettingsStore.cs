@@ -258,6 +258,15 @@ public class SettingsStore
     /// </summary>
     public string UiFontFamily { get; set; } = "";
 
+    /// <summary>
+    /// 快捷键覆盖项(2026-11-28 新增): 操作 id → 规范组合键; 空串 = 主动清空绑定。
+    /// 未出现的 id = 使用 ShortcutCatalog 的默认键。
+    /// ★ 读盘时由 <see cref="Helpers.ShortcutMap.Build"/> 清洗(未知 id / 非法键 /
+    ///   系统保留组合 / 冲突项一律丢弃), 所以这里的键值永远是"能直接拿去匹配"的。
+    /// ★ 与 <see cref="Models.AppSettings.Shortcuts"/> 是读写契约, 两处必须一致。
+    /// </summary>
+    public Dictionary<string, string> Shortcuts { get; set; } = new();
+
     /// <summary>关闭主窗口时是否最小化到托盘。
     ///
     /// 默认 **true**: 点右上角关闭键只是把窗口收进托盘(进程继续跑, 双击托盘图标恢复),
@@ -295,6 +304,23 @@ public class SettingsStore
     /// 把匿名可见清晰度从 360P/480P 提到 720P/1080P —— 依据见 ApiClient.ApplyTryLook。
     /// </summary>
     public bool NoLogin1080P { get; set; } = true;
+
+    /// <summary>
+    /// 是否开启**崩溃转储**(2026-11-28 新增)。
+    ///
+    /// ★ 为什么需要它: 用户报的"窗口冻住 → 进程消失"是原生层崩溃(典型是 libvlc 里的
+    ///   0xc0000005), 那不是 .NET 异常, 我们的兜底处理器一次都不会跑 ——
+    ///   errors.txt 里一个字都没有, 事件查看器也只有一句"应用程序错误"。
+    ///   开了转储, 原生崩溃时会写出一个 minidump, 拿到它就能直接看到崩在哪条原生调用上
+    ///   (见 <see cref="CrashDumpService"/>)。
+    ///
+    /// ★ 默认**关**: 崩溃时写转储要占磁盘(约 300KB)也会拖慢崩溃处理,
+    ///   而绝大多数用户不会遇到这类问题。遇到"必现的卡死"时再打开即可。
+    /// ★ 这个开关是"用户意图"的记录; 真正落地要装上进程内的异常处理器
+    ///   (见 <see cref="ApplyCrashDumpSetting"/>)。
+    /// ★ 与 <see cref="Models.AppSettings.CrashDumpEnabled"/> 是读写契约。
+    /// </summary>
+    public bool CrashDumpEnabled { get; set; }
 
     // ----------------- CDN(线路)设置 -----------------
     // 详见 Models/CdnOption.cs 与 Services/CdnService.cs
@@ -864,6 +890,11 @@ public class SettingsStore
         //   与 DownloadDir 非法路径回落同一思路(不让脏值流到下游)。
         UiFontFamily = Helpers.UiFont.SanitizeStored(s.UiFontFamily);
 
+        // 快捷键(2026-11-28): 只认当前目录里的操作 id, 组合键必须是白名单里的键且不与
+        // 系统/其它操作冲突 —— 规范化后的字典写回内存, 让设置页显示与运行时匹配共用一份。
+        _ = Helpers.ShortcutMap.Build(s.Shortcuts, out var cleanedShortcuts);
+        Shortcuts = cleanedShortcuts;
+
         // 类别串要 Sanitize: 配置里可能留着本应用不做的 interaction, 或被手改坏 ——
         // 不清掉就会出现"界面上一个都没勾、后台却还在按旧类别跳"的矛盾。
         SponsorBlockEnabled = s.SponsorBlockEnabled;
@@ -881,6 +912,11 @@ public class SettingsStore
             ? noticed
             : null;
         NoLogin1080P = s.NoLogin1080P;
+
+        // 崩溃转储(2026-11-28 新增): 老配置没有这个字段 ⇒ false(默认关)。
+        // ★ 只是"用户意图"的记录, 真正落地靠进程内的异常处理器 —— 启动时会按这个值
+        //   重新装一次(见 ApplyCrashDumpSetting)。
+        CrashDumpEnabled = s.CrashDumpEnabled;
 
         // ★ CdnManualId 要校验: 老配置里的 Id 可能已从候选表下线,
         //   留着它会让"手动模式"指到一条不存在的线路(见 CdnService.SelectUrlAsync)。
@@ -1149,6 +1185,7 @@ public class SettingsStore
         RecommendSource = RecommendSource,
         AccentColor = AccentColor,
         UiFontFamily = UiFontFamily,
+        Shortcuts = new Dictionary<string, string>(Shortcuts),
         SponsorBlockEnabled = SponsorBlockEnabled,
         SponsorBlockCategories = SponsorBlockCategories,
         CloseToTray = CloseToTray,
@@ -1157,6 +1194,7 @@ public class SettingsStore
         SkippedVersion = SkippedVersion,
         LastUpdateFailureNoticeUtc = LastUpdateFailureNoticeUtc,
         NoLogin1080P = NoLogin1080P,
+        CrashDumpEnabled = CrashDumpEnabled,
         CdnMode = CdnMode,
         CdnManualId = CdnManualId,
         BlockPcdn = BlockPcdn,
@@ -1499,6 +1537,53 @@ public class SettingsStore
         if (NoLogin1080P == value) return;
         NoLogin1080P = value;
         Save();
+    }
+
+    /// <summary>
+    /// 改「崩溃转储」开关并落盘, **同时立刻把异常处理器装上/卸掉**。
+    ///
+    /// ★ 为什么开关与实际能力必须一起动:
+    ///   转储能力由**进程内的异常处理器**提供(见 <see cref="CrashDumpService"/>),
+    ///   设置项只是"用户想不想要"的记录。两者分开就会出现"界面显示已开启, 但崩了没转储"
+    ///   —— 用户白等一场, 而这种"看起来开了其实没生效"的错最难查。
+    ///
+    /// ★ 装不上(权限/目录不可写)不能把设置改回去:
+    ///   设置项记着用户的意图, 下次启动还会再试一次(见 <see cref="ApplyCrashDumpSetting"/>)。
+    /// ★ 返回值是"能力是否真的落地了" —— 调用方(设置页)据此提示用户,
+    ///   而不是让界面显示"已开启"却什么都没发生。
+    /// </summary>
+    public bool SetCrashDumpEnabled(bool value)
+    {
+        if (CrashDumpEnabled == value) return ApplyCrashDumpSetting();
+        CrashDumpEnabled = value;
+        Save();
+        return ApplyCrashDumpSetting();
+    }
+
+    /// <summary>
+    /// 按当前设置值把崩溃转储能力落地(启动时调一次)。
+    ///
+    /// ★ 为什么启动时要再落一次:
+    ///   ① 用户可能在别的程序里改过/删过注册表项, 那时"设置显示开着但实际没开";
+    ///   ② 异常处理器是**进程级**的, 重启后就没了, 必须重新装。
+    ///   ⇒ 每次启动都按设置重新落地一次, 让"界面上的开关"始终等于"实际能力"。
+    /// </summary>
+    public bool ApplyCrashDumpSetting()
+    {
+        try
+        {
+            if (CrashDumpEnabled)
+                CrashDumpService.Enable(CrashDumpService.DefaultDumpDirectory);
+            else
+                CrashDumpService.Disable();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // 装不上就记一笔: 用户反馈"开了没转储"时, 这里能看出原因
+            App.ReportError(ex);
+            return false;
+        }
     }
 
     /// <summary>

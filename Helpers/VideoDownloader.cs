@@ -55,14 +55,20 @@ public static class VideoDownloader
         }
 
         var name = string.IsNullOrWhiteSpace(req.Title) ? req.Bvid : req.Title;
-        var path = BuildTargetPath(name);
-        var part = path + ".part";
+        // ★ 文件名带清晰度: 同一视频下多个清晰度必须落到不同文件, 否则互相覆盖
+        //   (实测: 下了 4 档, 最后只剩最后一档, 而且是最低档 —— 见合流失败那条兜底路径)。
+        var path = BuildTargetPath(name, req.QualityLabel);
+        // ★ 临时名带唯一后缀: 同一个视频同时下多档时, .part / .v.part / .a.part 也会撞名,
+        //   两个任务写进同一个文件 ⇒ 出来的文件是花的。视频号这么带后缀就是防这个。
+        var part = path + "." + Guid.NewGuid().ToString("N") + ".part";
 
         // 进度不再走全局 Toast —— 多个任务同时下载时同一块 Toast 会被互相覆盖,
         // 而且每次 Show 都重播淡入(每 1% 闪一下)。这里登记到 DownloadProgressService,
         // 由右上角独立进度条合并显示。using 保证成功/失败/取消都会注销任务。
         using var job = Svc.DownloadProgress.Begin(name);
 
+        // 走了 durl 兜底就是"其实没拿到所选清晰度", 文件名要如实反映
+        var usedFallback = false;
         try
         {
             if (req.UseMuxed)
@@ -82,7 +88,8 @@ public static class VideoDownloader
                 }
 
                 var dir = Path.GetDirectoryName(part) ?? AppPaths.DownloadDir;
-                var stem = Path.GetFileName(path);
+                // stem 取自带唯一后缀的 part 名 ⇒ vPart/aPart 也不会和别的任务撞名
+                var stem = Path.GetFileName(part);
                 var vPart = Path.Combine(dir, stem + ".v.part");
                 var aPart = Path.Combine(dir, stem + ".a.part");
 
@@ -120,6 +127,7 @@ public static class VideoDownloader
                             Svc.Toast.Show("音视频合成失败: " + (err ?? "未知原因"));
                             return null;
                         }
+                        usedFallback = true;
                     }
                 }
                 finally
@@ -129,6 +137,10 @@ public static class VideoDownloader
                     TryDelete(part + ".tmp");
                 }
             }
+
+            // ★ 兜底拿到的其实是单流(≤720P, 实测多数视频只给 360P): 文件名如实反映,
+            //   别让"标题 (1080P).mp4"里装着 360P 的内容。
+            if (usedFallback) path = BuildTargetPath(name, "单流兜底");
 
             // 全部写完才改成正式名字(保证"看得见的文件一定是完整的")
             if (File.Exists(path)) File.Delete(path);
@@ -144,6 +156,11 @@ public static class VideoDownloader
             TrayService.Instance.Notify("视频下载完成", "已保存到 " + folder);
 
             if (req.OpenFolderWhenDone) RevealInExplorer(path);
+
+            // ★ 章节是**增强项**: 放在改名与"已保存"之后 —— 接口慢(上限 15s)或失败都
+            //   不该拖住用户拿到文件。写器自身是"临时文件 + 原子替换", 对正式文件写入
+            //   同样安全(失败只删临时文件, 正式文件一个字节不动)。
+            await TryAttachChaptersAsync(req, path);
             return path;
         }
         catch (Exception ex)
@@ -151,6 +168,44 @@ public static class VideoDownloader
             TryDelete(part);
             Svc.Toast.Show("下载失败: " + ex.Message);
             return null;
+        }
+    }
+
+    /// <summary>
+    /// 下载完成后把 B 站章节写进 MP4 的 `moov/udta/chpl`。
+    ///
+    /// ★ 章节只是增强: 接口失败/视频本来没有章节/写入失败都不影响下载结果,
+    ///   所以这里不抛异常, 只把失败原因写进 errors.txt(App.ReportError)。
+    /// ★ 走的是 WBI 接口: 项目在 ApiClient.Core.cs 里记录过风控(同一 IP 连打 12 次
+    ///   出现过 code=0 与 -412 交替), 所以这里是**每条视频一次**的额外请求 ——
+    ///   它排在用户可见的"已保存"之后, 慢也不影响拿文件。
+    /// </summary>
+    private static async Task TryAttachChaptersAsync(VideoDownloadRequest req, string path)
+    {
+        if (req.Cid <= 0 || string.IsNullOrEmpty(req.Bvid) || !File.Exists(path)) return;
+        try
+        {
+            var (ok, _, _, _, chapters) = await Svc.Api.GetPlayerInfoAsync(req.Bvid, req.Cid);
+            if (!ok || chapters == null || chapters.Count < 2) return;
+
+            if (Mp4ChapterWriter.TryAdd(path, chapters, out var err))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[Download] 章节已写入 {chapters.Count} 条 bvid={req.Bvid} cid={req.Cid}\n");
+            }
+            else if (!string.IsNullOrEmpty(err))
+            {
+                // ★ 用 App.ReportError 而不是 Debug.WriteLine: 后者带 [Conditional("DEBUG")],
+                //   发布版(Release)里会被编译掉 —— 用户反馈"下载的视频没有章节"时,
+                //   errors.txt 里一个字都没有, 没法排查。同文件的合流失败就是走 ReportError。
+                App.ReportError(new InvalidOperationException(
+                    $"章节写入失败 bvid={req.Bvid} cid={req.Cid}: {err}"));
+            }
+        }
+        catch (Exception ex)
+        {
+            App.ReportError(new InvalidOperationException(
+                $"章节获取/写入异常 bvid={req.Bvid} cid={req.Cid}: {ex.Message}"));
         }
     }
 
@@ -167,7 +222,9 @@ public static class VideoDownloader
     {
         try
         {
-            var (ok, _, muxedUrl, _) = await Svc.Api.GetDownloadUrlAsync(req.Bvid, req.Cid);
+            // ★ 带上用户选的 qn: durl 单流的清晰度上限是 720P, 但接口认 qn 时会尽量给到那一档
+            //   (实测某些视频 qn 无效、只给 360P —— 那是 B 站侧的限制, 不是这里能改的)。
+            var (ok, _, muxedUrl, _) = await Svc.Api.GetDownloadUrlAsync(req.Bvid, req.Cid, req.Qn);
             if (!ok || string.IsNullOrEmpty(muxedUrl)) return false;
 
             // 合流已经失败, 先把半截输出清掉, 免得下面的下载写进同一个文件
@@ -264,12 +321,20 @@ public static class VideoDownloader
         }
     }
 
-    /// <summary>生成不重名的目标路径(标题里的非法字符由 FileNameUtil 清理)</summary>
-    private static string BuildTargetPath(string title)
+    /// <summary>
+    /// 生成不重名的目标路径(标题里的非法字符由 FileNameUtil 清理)。
+    ///
+    /// ★ 文件名带清晰度标签("标题 (1080P 高码率).mp4"): 同一视频下多个清晰度要能并存,
+    ///   否则后一次下载会覆盖前一次(实测: 下了 4 档只剩最后一档)。
+    /// </summary>
+    private static string BuildTargetPath(string title, string qualityLabel = "")
     {
         var dir = AppPaths.DownloadDir;
         try { Directory.CreateDirectory(dir); } catch { /* 后面写入会报错 */ }
-        return FileNameUtil.UniquePath(dir, title, ".mp4", "video");
+        var stem = string.IsNullOrWhiteSpace(qualityLabel)
+            ? title
+            : $"{title} ({qualityLabel})";
+        return FileNameUtil.UniquePath(dir, stem, ".mp4", "video");
     }
 
     /// <summary>在资源管理器里定位到刚下好的文件(用户勾了"完成后打开文件夹"时)</summary>

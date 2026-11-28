@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -177,8 +178,8 @@ public class SettingsViewModel : ObservableObject
 
     private int _tabIndex;
 
-    /// <summary>当前选中 Tab 的序号(0=通用 1=播放 2=数据管理 3=关于)。
-    /// 页面用它切内容; 四个 bool 属性是给 XAML 胶囊 Tab 双向绑定的投影。</summary>
+    /// <summary>当前选中 Tab 的序号(0=通用 1=播放 2=快捷键 3=数据管理 4=关于)。
+    /// 页面用它切内容; 五个 bool 属性是给 XAML 胶囊 Tab 双向绑定的投影。</summary>
     public int TabIndex
     {
         get => _tabIndex;
@@ -187,6 +188,7 @@ public class SettingsViewModel : ObservableObject
             if (!SetProperty(ref _tabIndex, value)) return;
             OnPropertyChanged(nameof(IsGeneralTab));
             OnPropertyChanged(nameof(IsPlaybackTab));
+            OnPropertyChanged(nameof(IsShortcutTab));
             OnPropertyChanged(nameof(IsDataTab));
             OnPropertyChanged(nameof(IsAboutTab));
         }
@@ -195,13 +197,14 @@ public class SettingsViewModel : ObservableObject
     /// <summary>
     /// Tab 投影。★ **只写 true**: RadioButton 组里的一个被勾上时, WPF 会先把**上一个**
     /// Radio 的 IsChecked 置 false —— TwoWay 绑定把 false 也写进来, 如果无条件执行
-    /// TabIndex = 0, 刚切到的 Tab 会被立刻盖回去, 表现就是"四个 Tab 都点不动"。
+    /// TabIndex = 0, 刚切到的 Tab 会被立刻盖回去, 表现就是"五个 Tab 都点不动"。
     /// false 只来自"取消勾选", 目标 Tab 自己的 true 会跟着来, 忽略即可。
     /// </summary>
     public bool IsGeneralTab  { get => TabIndex == 0; set { if (value) TabIndex = 0; } }
     public bool IsPlaybackTab { get => TabIndex == 1; set { if (value) TabIndex = 1; } }
-    public bool IsDataTab     { get => TabIndex == 2; set { if (value) TabIndex = 2; } }
-    public bool IsAboutTab    { get => TabIndex == 3; set { if (value) TabIndex = 3; } }
+    public bool IsShortcutTab { get => TabIndex == 2; set { if (value) TabIndex = 2; } }
+    public bool IsDataTab     { get => TabIndex == 3; set { if (value) TabIndex = 3; } }
+    public bool IsAboutTab    { get => TabIndex == 4; set { if (value) TabIndex = 4; } }
 
     // ----------------- 主题色 -----------------
 
@@ -613,6 +616,80 @@ public class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(FontHint));
         OnPropertyChanged(nameof(IsDefaultFont));
         _resetFontCommand?.RaiseCanExecuteChanged();
+    }
+
+    // ---------------- 快捷键自定义(2026-11-28) ----------------
+    //
+    // 目录(哪些操作、默认键、分组、说明)全部来自 Models/ShortcutCatalog, 这里只负责把它
+    // 投影成设置页可绑定的分组列表。改绑/校验/落盘/重建映射都在 Services/ShortcutService 里;
+    // 本 VM 的职责是"改完之后把每一行的显示都刷新一遍" —— 否则让出默认键的那一行会停在旧值。
+
+    private readonly System.Collections.ObjectModel.ObservableCollection<ShortcutGroupViewModel> _shortcutGroups = new();
+    private bool _shortcutGroupsBuilt;
+    private RelayCommand? _resetAllShortcutsCommand;
+
+    /// <summary>快捷键 Tab 的分组数据(首次访问时构建, 与字体下拉同一套懒加载思路)</summary>
+    public System.Collections.ObjectModel.ObservableCollection<ShortcutGroupViewModel> ShortcutGroups
+    {
+        get { EnsureShortcutGroups(); return _shortcutGroups; }
+    }
+
+    /// <summary>全部恢复默认(只在有覆盖项时可点)</summary>
+    public ICommand ResetAllShortcutsCommand { get; }
+
+    private void EnsureShortcutGroups()
+    {
+        if (_shortcutGroupsBuilt) return;
+        _shortcutGroupsBuilt = true;
+        RebuildShortcutGroups();
+    }
+
+    private void RebuildShortcutGroups()
+    {
+        _shortcutGroups.Clear();
+        foreach (var groupTitle in ShortcutCatalog.Groups)
+        {
+            var items = ShortcutCatalog.All
+                .Where(d => d.Group == groupTitle)
+                .Select((d, index) => new ShortcutItemViewModel(this, d, index == 0))
+                .ToList();
+            if (items.Count > 0)
+                _shortcutGroups.Add(new ShortcutGroupViewModel(groupTitle, items));
+        }
+    }
+
+    /// <summary>改绑一项(空串 = 清空)。失败原因交给行 VM 弹 Toast。</summary>
+    internal bool TryAssignShortcut(ShortcutItemViewModel item, string? raw, out string error)
+    {
+        if (!Svc.Shortcuts.TryAssign(item.Action, raw, out error)) return false;
+        RefreshShortcutRows();
+        return true;
+    }
+
+    /// <summary>单项恢复默认</summary>
+    internal void ResetShortcut(ShortcutItemViewModel item)
+    {
+        Svc.Shortcuts.Reset(item.Action);
+        RefreshShortcutRows();
+    }
+
+    private void ResetAllShortcuts()
+    {
+        Svc.Shortcuts.ResetAll();
+        RefreshShortcutRows();
+        Svc.Toast.Show("已恢复默认快捷键");
+    }
+
+    /// <summary>
+    /// 改绑/重置后刷新所有行。★ 不能只刷当前行: 一条覆盖项可能让出/占用另一个默认键
+    /// (例如把「静音」改成 K 后, 原本用 K 的自定义项会被校验拦下, 但显示必须一致)。
+    /// </summary>
+    private void RefreshShortcutRows()
+    {
+        foreach (var group in _shortcutGroups)
+            foreach (var item in group.Items)
+                item.RaiseGestureChanged();
+        _resetAllShortcutsCommand?.RaiseCanExecuteChanged();
     }
 
     // ---------------- 软件缩放(2026-10-06) ----------------
@@ -1719,6 +1796,149 @@ public class SettingsViewModel : ObservableObject
     /// <summary>打开 GitHub Issues(反馈入口)。</summary>
     public ICommand OpenFeedbackCommand { get; }
 
+    // ----------------- 问题诊断(2026-11-28 新增) -----------------
+
+    /// <summary>是否开启崩溃转储(见 <see cref="CrashDumpService"/>)。</summary>
+    public bool CrashDumpEnabled
+    {
+        get => Svc.Settings.CrashDumpEnabled;
+        set
+        {
+            if (value == Svc.Settings.CrashDumpEnabled) return;
+            var ok = Svc.Settings.SetCrashDumpEnabled(value);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CrashDumpHint));
+            // ★ 能力没落地必须告诉用户 —— 否则界面显示"已开启"、崩了却没有转储,
+            //   是最难排查的那种"看起来生效了"。关不掉也要说(说明处理器还装着)。
+            if (!ok)
+                Svc.Toast.Show(value
+                    ? "崩溃转储没能开启(转储目录不可写), 详情已记入日志"
+                    : "崩溃转储没能关闭, 详情已记入日志");
+        }
+    }
+
+    /// <summary>崩溃转储那一行的说明。写清楚"什么时候开、开了会发生什么"。</summary>
+    public string CrashDumpHint
+    {
+        get
+        {
+            if (!CrashDumpEnabled)
+                return "默认关闭。遇到「卡死或闪退」且能稳定复现时打开它, 复现一次后再导出报告 —— " +
+                       "崩溃现场会被存成转储文件, 是定位原生崩溃的唯一手段";
+            var dir = CrashDumpService.CurrentDumpDirectory() ?? CrashDumpService.DefaultDumpDirectory;
+            var count = CrashDumpService.ListDumpFiles(dir).Length;
+            return $"已开启。转储文件保存在 {dir}(当前 {count} 个); 崩溃后导出报告时会一并打包";
+        }
+    }
+
+    /// <summary>导出诊断报告(zip)。</summary>
+    public ICommand ExportDiagnosticReportCommand { get; }
+
+    /// <summary>在资源管理器里打开报告所在目录。</summary>
+    public ICommand OpenReportFolderCommand { get; }
+
+    /// <summary>
+    /// 最近一次导出的报告路径(空 = 还没导过)。
+    /// ★ 只给「打开目录」用: 没导过时它落到下载目录, 导过之后落到报告所在的目录 ——
+    ///   用户点完"导出"紧接着去"打开目录", 期望看到的就是刚生成的那个文件。
+    /// </summary>
+    private string _lastReportPath = "";
+
+    /// <summary>导出诊断报告的说明文字。</summary>
+    public string ExportReportHint =>
+        "把运行日志、播放诊断、崩溃记录和系统信息打包成一个 zip, 存到「下载」文件夹。" +
+        "反馈问题时把这个文件一起发出来, 定位会快很多(不含登录凭据与个人信息)";
+
+    /// <summary>
+    /// 本次运行的"界面卡住"统计。
+    ///
+    /// ★ 为什么把它显示给用户看: 用户报"卡住了"时, 最难的是分不清"真卡了"还是"我以为卡了"。
+    ///   看门狗是**客观**测出来的(从另一个线程问 UI 线程), 显示出来用户就能自己确认 ——
+    ///   顺便也让人知道"这功能一直在跑, 卡了会被记下来"。
+    /// </summary>
+    public string FreezeStatsText
+    {
+        get
+        {
+            var watchdog = Svc.FreezeWatchdog;
+            if (watchdog == null) return "界面卡住检测: 未启动";
+            var count = watchdog.FreezeCount;
+            return count == 0
+                ? "界面卡住检测: 本次运行未检测到卡住"
+                : $"界面卡住检测: 本次运行检测到 {count} 次卡住(最近一次: {watchdog.LastFreezeSummary})";
+        }
+    }
+
+    /// <summary>
+    /// 导出诊断报告。
+    ///
+    /// ★ 打包要读几个日志文件 + 事件日志, 都是磁盘 IO ⇒ 放后台线程,
+    ///   免得点了按钮界面卡住(日志动辄几百 KB, 事件日志还要解码)。
+    /// ★ 导出完**在资源管理器里选中那个文件** —— 用户下一步就是把它发出去,
+    ///   直接把文件摆在他眼前比只弹一句"导出成功"有用得多。
+    /// </summary>
+    private async Task ExportDiagnosticReportAsync()
+    {
+        try
+        {
+            var path = await System.Threading.Tasks.Task.Run(() =>
+                DiagnosticReportService.Export());
+            _lastReportPath = path;
+            Svc.Toast.Show("诊断报告已导出: " + path);
+            RevealInExplorer(path);
+        }
+        catch (Exception ex)
+        {
+            App.ReportError(ex);
+            Svc.Toast.Show("导出诊断报告失败: " + ex.Message);
+        }
+    }
+
+    /// <summary>在资源管理器里选中文件(失败就退化成打开所在目录)。</summary>
+    private static void RevealInExplorer(string path)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe")
+            {
+                Arguments = "/select,\"" + path + "\"",
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                    Path.GetDirectoryName(path) ?? AppPaths.DownloadDir)
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch { /* 打开不了就算了, 路径已经显示给用户了 */ }
+        }
+    }
+
+    /// <summary>打开上次导出的报告所在目录。</summary>
+    private void OpenReportFolder()
+    {
+        try
+        {
+            var dir = string.IsNullOrEmpty(_lastReportPath)
+                ? AppPaths.DownloadDir
+                : Path.GetDirectoryName(_lastReportPath) ?? AppPaths.DownloadDir;
+            System.IO.Directory.CreateDirectory(dir);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dir)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            Svc.Toast.Show("打开目录失败: " + ex.Message);
+        }
+    }
+
     public SettingsViewModel()
     {
         ThemeSystemCommand = new RelayCommand(() => ThemeMode = AppTheme.System);
@@ -1767,8 +1987,18 @@ public class SettingsViewModel : ObservableObject
         OpenRepoCommand = new RelayCommand(() => OpenAboutLink(UpdateChecker.RepoPageUrl));
         OpenFeedbackCommand = new RelayCommand(() => OpenAboutLink(UpdateChecker.IssuesPageUrl));
 
+        // 问题诊断(2026-11-28 新增): 一键导出诊断报告 + 打开报告所在目录
+        ExportDiagnosticReportCommand = new AsyncRelayCommand(ExportDiagnosticReportAsync);
+        OpenReportFolderCommand = new RelayCommand(OpenReportFolder);
+
         // 立即收进托盘(按钮点一下就能验证"关闭到托盘"是什么效果, 不用真的去点关闭键)
         MinimizeToTrayCommand = new RelayCommand(() => TrayService.Instance.MinimizeToTray());
+
+        // 快捷键: 全部恢复默认(没有覆盖项时按钮置灰)
+        _resetAllShortcutsCommand = new RelayCommand(
+            ResetAllShortcuts,
+            canExecute: () => Svc.Settings.Shortcuts.Count > 0);
+        ResetAllShortcutsCommand = _resetAllShortcutsCommand;
 
         // 原来这里还有"清空本机观看历史" —— 本机历史已整体移除(历史统一走云端), 一并删掉。
 
@@ -1837,6 +2067,11 @@ public class SettingsViewModel : ObservableObject
         UpdateCacheSizeText();
         UpdateVideoCacheSizeText();
         _ = RefreshUserAsync();
+        // 快捷键 Tab: 若已经建过列表, 进来时同步一次(覆盖项可能被手改配置或未来别的入口改过)
+        if (_shortcutGroupsBuilt) RefreshShortcutRows();
+        // 冻结统计与崩溃转储状态都会随运行变化, 进来时同步一次
+        OnPropertyChanged(nameof(FreezeStatsText));
+        OnPropertyChanged(nameof(CrashDumpHint));
     }
 
     private void UpdateVideoCacheSizeText()

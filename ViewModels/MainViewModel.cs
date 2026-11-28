@@ -25,7 +25,9 @@ public enum PageKey
     /// <summary>我的页(2026-09-26 新增: 资料+快捷入口+收藏夹; 收藏/历史从侧栏收进这里)</summary>
     Mine = 9,
     /// <summary>稍后再看(2026-09-28 新增: 入口是「我的」页的快捷入口, 不在导航栏上)</summary>
-    WatchLater = 10
+    WatchLater = 10,
+    /// <summary>我的订阅(2026-11-27 新增: 追番/追剧/订阅的合集; 入口是「我的」页)</summary>
+    Subscription = 11
 }
 
 /// <summary>主窗口 ViewModel: 导航(登录态/用户信息的展示由各页面自己的 VM 负责)</summary>
@@ -46,6 +48,27 @@ public class MainViewModel : ObservableObject
 
     public event Action? PageChanged;
 
+    /// <summary>
+    /// 子页面的「来源页」(2026-11-28 用户要求"侧键返回上一级")。
+    ///
+    /// ★ 键 = 子页面自己, 值 = **进入它时**停着的那一页。
+    ///   侧键 / Esc / 页面上的返回按钮都用它来决定退回哪一页 —— 用户回到的是自己真的来过的
+    ///   地方, 而不是各页写死的目标(那些目标只对"现在的入口"成立)。
+    /// ★ 只记 <see cref="PageBackPolicy.IsChildPage"/> 认的那 6 个页面: 首页/动态/我的/设置
+    ///   没有"上一级"概念, 不进这张表, 侧键落在它们上面仍然什么都不做。
+    /// </summary>
+    private readonly Dictionary<PageKey, PageKey> _origins = new();
+
+    /// <summary>某个页面的来源页; 没记录过返回 null(由调用方回落到默认上级)。</summary>
+    public PageKey? OriginOf(PageKey key)
+        => _origins.TryGetValue(key, out var parent) ? parent : null;
+
+    /// <summary>
+    /// "返回上一级"的目标页。没有上一级的页面返回它自己, 调用方据此判断"没得退"。
+    /// ★ 页面上那颗返回按钮与主窗口的侧键 / Esc 都走这一条, 保证三处目标永远一致。
+    /// </summary>
+    public PageKey ResolveBackTarget(PageKey key) => PageBackPolicy.Resolve(key, OriginOf(key));
+
     public ICommand NavigateCommand { get; }
 
     public MainViewModel()
@@ -63,6 +86,16 @@ public class MainViewModel : ObservableObject
             PageChanged?.Invoke();
             return;
         }
+
+        // ★ 记来源(2026-11-28): 是"真切页"才记 —— 点当前页那条分支在上面已经 return,
+        //   否则"点一下当前导航项"就会把来源冲成自己, 侧键立刻退不回去。
+        if (PageBackPolicy.IsChildPage(key)) _origins[key] = Current;
+
+        // ★ 诊断: 记下"用户当时停在哪个页面"。UI 线程冻住时, 这是现场的一部分
+        //   (见 Services/DiagnosticsState 与 UiFreezeWatchdog)。
+        Services.DiagnosticsState.Set("当前页面", key.ToString());
+        Services.DiagnosticsState.Note($"切到页面 {key}");
+
         Current = key; // setter 内部已 fire PageChanged
     }
 

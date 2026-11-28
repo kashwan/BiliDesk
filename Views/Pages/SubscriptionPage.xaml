@@ -1,0 +1,315 @@
+<UserControl x:Class="BiliDesk.Views.Pages.SubscriptionPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:helpers="clr-namespace:BiliDesk.Helpers"
+             xmlns:controls="clr-namespace:BiliDesk.Views.Controls"
+             Background="{DynamicResource AppBackgroundBrush}">
+    <UserControl.Resources>
+        <!-- 「我的订阅」的 Tab 样式: 视觉参数全部继承全局 ContentTabStyle(字号 15 / Padding 4,6 /
+             悬停变主文字色), **只去掉模板里自带的下划线**。
+             ★ 2026-11-28 用户要求"tab 切换底下的横线加上动画": 每个 Tab 自带的下划线是
+               由 IsChecked 驱动、瞬间换位的(硬切); 改成整行共享一条 TabIndicator,
+               由 code-behind 在切换时缓动滑过去(与首页 / 播放器简介评论 Tab 同一套观感)。
+             ★ 为什么不能留着自带下划线: 点新 Tab 的同一帧目的地就亮了一条, 再叠一条
+               正从旧 Tab 滑过来的横条, 会同时看到两条, 像闪了一下。 -->
+        <Style x:Key="SubscriptionTabStyle" TargetType="RadioButton"
+               BasedOn="{StaticResource ContentTabStyle}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <ContentPresenter x:Name="Cp"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          Margin="{TemplateBinding Padding}"
+                                          TextElement.Foreground="{TemplateBinding Foreground}" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+    <!--
+        「我的订阅」页(2026-11-27 新增, 版式对齐 B 站空间的「追番追剧」页 + 订阅合集)。
+
+        三个 Tab(页面顺序: 合集 / 追番 / 追剧; 合集是默认页):
+          合集       = collected/list 里 type=21 的项。响应里的 count 混着「收藏的收藏夹」,
+                       没有“只要合集”的服务端筛选, 所以这一页**不用页码栏**, 滚动加载,
+                       摘要显示“已加载 N 个 / 共 N 个”;
+          追番 / 追剧 = PGC 接口(type 1/2), 接口带 total, 用底部页码栏(PagerBar, 20/页)。
+
+        ★ 这一页不在左侧导航栏上(入口是「我的」页的「我的订阅」/「查看更多」),
+          所以自带返回「我的」按钮(与缓存/稍后再看页同一套规则); 2026-11-27 起该按钮
+          与刷新一起收进**右下角浮动工具列**(用户要求, 与收藏/历史/缓存页一致)。
+        ★ Tab 选中态**只由 code-behind 写 IsChecked 驱动**(与我的空间页同一条经验):
+          分散着改必然出现“两个都亮”或“两个都不亮”。
+    -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- ===== 标题行(操作按钮已搬到右下角工具列, 头部不再需要为它们撑到 62) ===== -->
+        <Grid Grid.Row="0" Margin="36,20,36,0" MinHeight="40">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Top">
+                <TextBlock Text="&#xE006;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                           FontSize="20" VerticalAlignment="Center"
+                           Foreground="{DynamicResource AccentTextBrush}" />
+                <TextBlock Text="我的订阅" Style="{StaticResource PageTitleStyle}" Margin="10,0,0,0" />
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== Tab 行: 合集 / 追番 / 追剧(合集排第一, 也是默认页) =====
+             条数由 VM 给, 未加载时只显示名字。
+             ★ 下划线是整行共享的一条 TabIndicator, 切 Tab 时滑到新位置(见 code-behind)。 -->
+        <Grid Grid.Row="1" Margin="36,14,36,12"
+              Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVis}}">
+            <StackPanel x:Name="TabRow" Orientation="Horizontal"
+                        Loaded="OnTabRowLoaded" IsVisibleChanged="OnTabRowIsVisibleChanged"
+                        SizeChanged="OnTabRowSizeChanged">
+                <RadioButton x:Name="TabCollections" GroupName="SubscriptionTab"
+                             Style="{StaticResource SubscriptionTabStyle}"
+                             Content="{Binding CollectionsTabText}"
+                             Checked="OnTabCollectionsChecked" />
+                <RadioButton x:Name="TabBangumi" GroupName="SubscriptionTab"
+                             Style="{StaticResource SubscriptionTabStyle}"
+                             Content="{Binding BangumiTabText}"
+                             Checked="OnTabBangumiChecked" />
+                <RadioButton x:Name="TabTeleplay" GroupName="SubscriptionTab"
+                             Style="{StaticResource SubscriptionTabStyle}"
+                             Content="{Binding TeleplayTabText}"
+                             Checked="OnTabTeleplayChecked" />
+            </StackPanel>
+
+            <!-- 共享下划线: 宽度/位置由代码按选中 Tab 的实测几何写入。
+                 Margin 0,0,0,-1 与原来 ContentTabStyle 里的下划线同款。
+                 IsHitTestVisible=False: 只是指示器, 不能挡住 Tab 的点击。 -->
+            <Border x:Name="TabIndicator" Height="2" Margin="0,0,0,-1"
+                    Background="{DynamicResource AccentBrush}"
+                    HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                    IsHitTestVisible="False">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="TabIndicatorShift" />
+                </Border.RenderTransform>
+            </Border>
+        </Grid>
+
+        <!-- ===== 内容区 ===== -->
+        <Grid Grid.Row="2">
+
+            <!-- 未登录 -->
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Visibility="{Binding IsLoggedIn, Converter={StaticResource InvBoolToVis}}">
+                <Border Width="72" Height="72" CornerRadius="36"
+                        Background="{DynamicResource AccentSoftFillBrush}">
+                    <TextBlock Text="&#xE006;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                               FontSize="32" Foreground="{DynamicResource AccentTextBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <TextBlock Text="{Binding LoginHint}" FontSize="14" Margin="0,18,0,0"
+                           HorizontalAlignment="Center"
+                           Foreground="{DynamicResource TextSecondaryBrush}" />
+                <Button Content="去登录" Style="{StaticResource AccentButtonStyle}"
+                        Padding="28,8" Margin="0,18,0,0" HorizontalAlignment="Center"
+                        Command="{Binding LoginCommand}" />
+            </StackPanel>
+
+            <Grid Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVis}}">
+
+                <!-- ================= 追番 ================= -->
+                <Grid Visibility="{Binding IsBangumiTab, Converter={StaticResource BoolToVis}}">
+                    <ScrollViewer x:Name="BangumiScroll" VerticalScrollBarVisibility="Auto"
+                                  ScrollChanged="OnListScrollChanged">
+                        <StackPanel Margin="36,0,36,200">
+                            <TextBlock Text="{Binding SummaryText}" FontSize="13" Margin="4,0,0,10"
+                                       Foreground="{DynamicResource TextTertiaryBrush}" />
+
+                            <!-- 翻页失败但已有内容时只留一行提示, 不用整块遮罩盖掉列表 -->
+                            <TextBlock Text="{Binding BangumiError}" FontSize="12" Margin="4,0,0,8"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Visibility="{Binding BangumiError, Converter={StaticResource StrToVis}}" />
+
+                            <ItemsControl ItemsSource="{Binding BangumiList}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <helpers:CardWallPanel helpers:CardWall.Enable="True"
+                                                               helpers:CardWall.Aspect="0.75" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <controls:BangumiCard />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <controls:PagerBar Margin="0,18,0,28" />
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Visibility="{Binding BangumiLoading, Converter={StaticResource BoolToVis}}">
+                        <controls:LoadingRing Width="30" Height="30" HorizontalAlignment="Center" />
+                        <TextBlock Text="加载追番…" Style="{StaticResource MetaTextStyle}"
+                                   Margin="0,12,0,0" HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420"
+                                Visibility="{Binding ShowBangumiError, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="{Binding BangumiError}" FontSize="13" TextWrapping="Wrap"
+                                   HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                        <Button Content="重试" Style="{StaticResource AccentButtonStyle}"
+                                HorizontalAlignment="Center" Margin="0,14,0,0" Padding="22,7"
+                                Command="{Binding RetryCommand}" />
+                    </StackPanel>
+
+                    <TextBlock Text="还没有追番" FontSize="13" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" Foreground="{DynamicResource TextTertiaryBrush}"
+                               Visibility="{Binding BangumiEmpty, Converter={StaticResource BoolToVis}}" />
+                </Grid>
+
+                <!-- ================= 追剧 ================= -->
+                <Grid Visibility="{Binding IsTeleplayTab, Converter={StaticResource BoolToVis}}">
+                    <ScrollViewer x:Name="TeleplayScroll" VerticalScrollBarVisibility="Auto"
+                                  ScrollChanged="OnListScrollChanged">
+                        <StackPanel Margin="36,0,36,200">
+                            <TextBlock Text="{Binding SummaryText}" FontSize="13" Margin="4,0,0,10"
+                                       Foreground="{DynamicResource TextTertiaryBrush}" />
+
+                            <TextBlock Text="{Binding TeleplayError}" FontSize="12" Margin="4,0,0,8"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Visibility="{Binding TeleplayError, Converter={StaticResource StrToVis}}" />
+
+                            <ItemsControl ItemsSource="{Binding TeleplayList}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <helpers:CardWallPanel helpers:CardWall.Enable="True"
+                                                               helpers:CardWall.Aspect="0.75" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <controls:BangumiCard />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <controls:PagerBar Margin="0,18,0,28" />
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Visibility="{Binding TeleplayLoading, Converter={StaticResource BoolToVis}}">
+                        <controls:LoadingRing Width="30" Height="30" HorizontalAlignment="Center" />
+                        <TextBlock Text="加载追剧…" Style="{StaticResource MetaTextStyle}"
+                                   Margin="0,12,0,0" HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420"
+                                Visibility="{Binding ShowTeleplayError, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="{Binding TeleplayError}" FontSize="13" TextWrapping="Wrap"
+                                   HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                        <Button Content="重试" Style="{StaticResource AccentButtonStyle}"
+                                HorizontalAlignment="Center" Margin="0,14,0,0" Padding="22,7"
+                                Command="{Binding RetryCommand}" />
+                    </StackPanel>
+
+                    <TextBlock Text="还没有追剧" FontSize="13" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" Foreground="{DynamicResource TextTertiaryBrush}"
+                               Visibility="{Binding TeleplayEmpty, Converter={StaticResource BoolToVis}}" />
+                </Grid>
+
+                <!-- ================= 合集 ================= -->
+                <Grid Visibility="{Binding IsCollectionsTab, Converter={StaticResource BoolToVis}}">
+                    <ScrollViewer x:Name="CollectionsScroll" VerticalScrollBarVisibility="Auto"
+                                  ScrollChanged="OnCollectionsScrollChanged">
+                        <StackPanel Margin="36,0,36,200">
+                            <TextBlock Text="{Binding SummaryText}" FontSize="13" Margin="4,0,0,10"
+                                       Foreground="{DynamicResource TextTertiaryBrush}" />
+
+                            <TextBlock Text="{Binding CollectionError}" FontSize="12" Margin="4,0,0,8"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Visibility="{Binding CollectionError, Converter={StaticResource StrToVis}}" />
+
+                            <ItemsControl ItemsSource="{Binding Collections}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <helpers:CardWallPanel helpers:CardWall.Enable="True" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <controls:SpaceCollectionCard OpenRequested="OnCollectionCardOpenRequested" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <controls:LoadingRing Width="18" Height="18" HorizontalAlignment="Center"
+                                                  Margin="0,16,0,28"
+                                                  Visibility="{Binding CollectionsLoadingMore, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Visibility="{Binding CollectionsLoading, Converter={StaticResource BoolToVis}}">
+                        <controls:LoadingRing Width="30" Height="30" HorizontalAlignment="Center" />
+                        <TextBlock Text="加载订阅的合集…" Style="{StaticResource MetaTextStyle}"
+                                   Margin="0,12,0,0" HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420"
+                                Visibility="{Binding ShowCollectionError, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="{Binding CollectionError}" FontSize="13" TextWrapping="Wrap"
+                                   HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                        <Button Content="重试" Style="{StaticResource AccentButtonStyle}"
+                                HorizontalAlignment="Center" Margin="0,14,0,0" Padding="22,7"
+                                Command="{Binding RetryCommand}" />
+                    </StackPanel>
+
+                    <TextBlock Text="还没有订阅任何合集" FontSize="13" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" Foreground="{DynamicResource TextTertiaryBrush}"
+                               Visibility="{Binding CollectionsEmpty, Converter={StaticResource BoolToVis}}" />
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <!-- ============ 右下角浮动工具列(2026-11-27) ============
+             用户要求"订阅和下载界面右上角的按钮做进右下角的工具列"。
+             与历史/收藏/稍后再看/首页同一套: FloatingIconButtonStyle 三种状态都不透明,
+             浮在卡片上不会糊进封面; 外面不加底板, 投影在样式模板里。
+             ★ Panel.ZIndex 浮在内容之上、不占独立列 —— 占列会把滚动条挤到按钮左边。
+               右边留 16 正好避让滚动条; 三块内容区底部都留了 200px, 最后一行不会被压住。 -->
+        <StackPanel x:Name="ToolBar" Grid.Row="0" Grid.RowSpan="3" Panel.ZIndex="20"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    Margin="0,0,16,20">
+
+            <!-- 播放页快捷入口: 放在最上面, 出现/收起不会推动下面按钮 -->
+            <controls:PlayerFab Margin="0,0,0,6" />
+
+            <!-- 顶部 = 刷新 / 下滑 = 回到顶部(见 OnTopRefreshClick) -->
+            <controls:TopRefreshButton x:Name="BtnTopRefresh" Click="OnTopRefreshClick" />
+
+            <!-- 返回「我的」: 入口在那一页, 统一给一条回去的路 -->
+            <Button Style="{StaticResource FloatingIconButtonStyle}" Margin="0,6,0,0"
+                    Click="OnBackToMineClick" ToolTip="返回上一级">
+                <Path Data="{StaticResource BackIconGeometry}"
+                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                      StrokeThickness="1.6" StrokeLineJoin="Round"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      Width="18" Height="18" Stretch="Uniform" />
+            </Button>
+        </StackPanel>
+    </Grid>
+</UserControl>

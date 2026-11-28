@@ -126,6 +126,16 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <!-- UP 主觉得很赞: 正文/图片之后、点赞按钮之前; 与正文左对齐。
+                             ★ 文案取自接口(card_label.text_content), 不写死。
+                             ★ 实心强调色底 + 白字的圆角方框(UpLikedBadgeStyle, 应用级共享样式);
+                               文字色用 TextOnAccentBrush —— 淡底白字只有 1.22:1 看不见,
+                               且它按底色亮度自动取黑/白(见 Styles.xaml 的说明)。 -->
+                        <Border Style="{StaticResource UpLikedBadgeStyle}"
+                                Visibility="{Binding IsUpLiked, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="{Binding UpLikedText}" FontSize="10"
+                                       Foreground="{DynamicResource TextOnAccentBrush}" />
+                        </Border>
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                             <Button Style="{StaticResource CommentActionButtonStyle}"
                                     Click="OnCommentLikeClick" ToolTip="点赞 / 取消点赞">
@@ -182,6 +192,15 @@
                                 <TextBlock Text="&#xE90A;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
                                            FontSize="12" />
                             </Button>
+                            <!-- 删除评论(2026-11-28): 图标形式, 紧跟回复键右侧; 只对自己/自己动态下的评论显示 -->
+                            <Button Style="{StaticResource CommentActionButtonStyle}" Margin="4,0,0,0"
+                                    Click="OnCommentDeleteClick"
+                                    IsEnabled="{Binding CanDeleteNow}"
+                                    ToolTip="删除这条评论"
+                                    Visibility="{Binding CanDelete, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="&#xE74D;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                           FontSize="12" />
+                            </Button>
                         </StackPanel>
                         <!-- 楼中楼预览: **整框可点** → 打开评论详情页(与视频评论区一致)
                              ★ 2026-11-14: 去掉 IsHitTestVisible=False, 让预览正文里的链接也能点。
@@ -192,7 +211,7 @@
                         <Border Margin="0,8,0,0" Padding="8,6" CornerRadius="6"
                                 Background="{DynamicResource ControlFillDefaultBrush}"
                                 BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
-                                Cursor="Hand" ToolTip="查看这条评论的全部回复"
+                                Cursor="Hand"
                                 PreviewMouseLeftButtonDown="OnReplyBoxPress"
                                 PreviewMouseLeftButtonUp="OnReplyBoxClick"
                                 Visibility="{Binding HasReplies, Converter={StaticResource BoolToVis}}">
@@ -209,7 +228,8 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                                 <TextBlock Text="{Binding ReplyBoxText}" FontSize="11" Margin="0,3,0,0"
-                                           Foreground="{DynamicResource AccentTextBrush}" />
+                                           Foreground="{DynamicResource AccentTextBrush}"
+                                           Visibility="{Binding ReplyBoxText, Converter={StaticResource StrToVis}}" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -290,6 +310,16 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <!-- UP 主觉得很赞: 正文/图片之后、点赞按钮之前; 与正文左对齐。
+                             ★ 文案取自接口(card_label.text_content), 不写死。
+                             ★ 实心强调色底 + 白字的圆角方框(UpLikedBadgeStyle, 应用级共享样式);
+                               文字色用 TextOnAccentBrush —— 淡底白字只有 1.22:1 看不见,
+                               且它按底色亮度自动取黑/白(见 Styles.xaml 的说明)。 -->
+                        <Border Style="{StaticResource UpLikedBadgeStyle}"
+                                Visibility="{Binding IsUpLiked, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="{Binding UpLikedText}" FontSize="10"
+                                       Foreground="{DynamicResource TextOnAccentBrush}" />
+                        </Border>
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                             <Button Style="{StaticResource CommentActionButtonStyle}"
                                     Click="OnCommentLikeClick" ToolTip="点赞 / 取消点赞">
@@ -346,6 +376,15 @@
                                 <TextBlock Text="&#xE90A;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
                                            FontSize="12" />
                             </Button>
+                            <!-- 删除评论(2026-11-28): 图标形式, 紧跟回复键右侧; 只对自己/自己动态下的评论显示 -->
+                            <Button Style="{StaticResource CommentActionButtonStyle}" Margin="4,0,0,0"
+                                    Click="OnCommentDeleteClick"
+                                    IsEnabled="{Binding CanDeleteNow}"
+                                    ToolTip="删除这条评论"
+                                    Visibility="{Binding CanDelete, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="&#xE74D;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                           FontSize="12" />
+                            </Button>
                         </StackPanel>
                     </StackPanel>
                 </Grid>
@@ -392,6 +431,16 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <!-- UP 主觉得很赞: 正文/图片之后、点赞按钮之前; 与正文左对齐。
+                             ★ 文案取自接口(card_label.text_content), 不写死。
+                             ★ 实心强调色底 + 白字的圆角方框(UpLikedBadgeStyle, 应用级共享样式);
+                               文字色用 TextOnAccentBrush —— 淡底白字只有 1.22:1 看不见,
+                               且它按底色亮度自动取黑/白(见 Styles.xaml 的说明)。 -->
+                        <Border Style="{StaticResource UpLikedBadgeStyle}"
+                                Visibility="{Binding IsUpLiked, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="{Binding UpLikedText}" FontSize="10"
+                                       Foreground="{DynamicResource TextOnAccentBrush}" />
+                        </Border>
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                             <Button Style="{StaticResource CommentActionButtonStyle}"
                                     Click="OnCommentLikeClick" ToolTip="点赞 / 取消点赞">
@@ -417,6 +466,15 @@
                             <Button Style="{StaticResource CommentActionButtonStyle}" Margin="4,0,0,0"
                                     Click="OnCommentReplyClick" ToolTip="回复这条回复">
                                 <TextBlock Text="&#xE90A;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                           FontSize="11" />
+                            </Button>
+                            <!-- 删除回复(2026-11-28): 图标形式, 紧跟回复键右侧 -->
+                            <Button Style="{StaticResource CommentActionButtonStyle}" Margin="4,0,0,0"
+                                    Click="OnCommentDeleteClick"
+                                    IsEnabled="{Binding CanDeleteNow}"
+                                    ToolTip="删除这条回复"
+                                    Visibility="{Binding CanDelete, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="&#xE74D;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
                                            FontSize="11" />
                             </Button>
                             <TextBlock Text="{Binding RcTime}" FontSize="10" Margin="8,0,0,0"

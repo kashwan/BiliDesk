@@ -703,6 +703,19 @@
                                    FontSize="12" VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextTertiaryBrush}" />
                     </Button>
+                    <!-- ★ 删除评论(2026-11-28): 图标形式, 紧跟在**回复键右边**(IP 属地之前)。
+                         显隐由 CommentItem.CanDelete 决定: 自己发的评论, 或自己是本视频 UP 主
+                         (UP 主可以删自己视频下任何人的评论)。未登录时 SelfMid=0, 整块不显示。
+                         IsEnabled 绑 CanDeleteNow: 删除请求在途时暂时不可点, 防连点。 -->
+                    <Button Style="{StaticResource CommentActionButtonStyle}" Margin="4,0,0,0"
+                            Click="OnCommentDeleteClick"
+                            IsEnabled="{Binding CanDeleteNow}"
+                            ToolTip="删除这条评论"
+                            Visibility="{Binding CanDelete, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="&#xE74D;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                   FontSize="12" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" />
+                    </Button>
                     <!-- ★ IP 属地摆在**回复键右边**(2026-11-12 用户要求)。
                          接口给的 Location 已自带 "IP属地：" 前缀, 直接显示即可;
                          没有就整块不显示(用户可在 B 站设置里关掉 / 未登录时接口不下发)。 -->
@@ -857,6 +870,16 @@
                 <ContentControl Content="{Binding}" Margin="0,6,0,0" HorizontalAlignment="Left"
                                 ContentTemplate="{StaticResource CommentPicturesTemplate}"
                                 Visibility="{Binding HasPictures, Converter={StaticResource BoolToVis}}" />
+                <!-- UP 主觉得很赞: 正文/图片之后、操作行之前; 与正文左对齐。
+                          ★ 文案取自接口(card_label.text_content), 不写死。
+                          ★ 实心强调色底 + 白字的圆角方框(UpLikedBadgeStyle, 应用级共享样式);
+                            文字色用 TextOnAccentBrush —— 淡底白字只有 1.22:1 看不见,
+                            且它按底色亮度自动取黑/白(见 Styles.xaml 的说明)。 -->
+                <Border Style="{StaticResource UpLikedBadgeStyle}"
+                        Visibility="{Binding IsUpLiked, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="{Binding UpLikedText}" FontSize="10"
+                               Foreground="{DynamicResource TextOnAccentBrush}" />
+                </Border>
                 <!-- 评论操作行(赞 / 踩 / 回复): 统一走 CommentActionBarTemplate, 别在这里另写一份 -->
                 <ContentControl Content="{Binding}" HorizontalAlignment="Left" Margin="0,4,0,0"
                                 ContentTemplate="{StaticResource CommentActionBarTemplate}" />
@@ -877,7 +900,6 @@
                         Cursor="Hand"
                         PreviewMouseLeftButtonDown="OnReplyBoxPress"
                         PreviewMouseLeftButtonUp="OnReplyBoxClick"
-                        ToolTip="查看这条评论的全部回复"
                         Visibility="{Binding HasReplies, Converter={StaticResource BoolToVis}}">
                     <StackPanel>
                         <ItemsControl ItemsSource="{Binding PreviewReplies}">
@@ -892,10 +914,12 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <!-- 底部提示行: 明确"这里能点", 顺便给出真实回复总数 -->
+                        <!-- 底部提示行: 明确"这里能点", 顺便给出真实回复总数
+                             ★ 预览已列全全部回复时这行会收起来(见 ReplyBoxText) -->
                         <TextBlock Text="{Binding ReplyBoxText}" FontSize="11" Margin="0,1,0,0"
                                    FontWeight="SemiBold"
-                                   Foreground="{DynamicResource AccentTextBrush}" />
+                                   Foreground="{DynamicResource AccentTextBrush}"
+                                   Visibility="{Binding ReplyBoxText, Converter={StaticResource StrToVis}}" />
                     </StackPanel>
                 </Border>
         </StackPanel>
@@ -2185,10 +2209,15 @@
                                             <Border Grid.Column="10" Width="1" Height="16" Background="#1FFFFFFF"
                                                     Margin="7,0,7,0" VerticalAlignment="Center" />
 
-                                            <!-- 全屏 -->
+                                            <!-- 全屏(2026-11-28 用户要求: 全屏时箭头改朝里)。
+                                                 ★ 字形与提示由 UpdateFullscreenButton 按 _isFullscreen 切换:
+                                                   常规 = E740(向外双箭头, "进入全屏");
+                                                   全屏 = E73F(向内双箭头, "退出全屏")。
+                                                   同一个按钮点两下是进出, 字形不变的话用户看不出再点会怎样。 -->
                                             <Button Grid.Column="11" x:Name="BtnFullscreen2" Style="{StaticResource PlayerIconBtn}"
                                                     Click="OnFullscreenClick" ToolTip="全屏 (F)">
-                                                <TextBlock Text="&#xE740;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                <TextBlock x:Name="FullscreenGlyph" Text="&#xE740;"
+                                                           FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
                                                            FontSize="15" Foreground="White" />
                                             </Button>
                                         </Grid>
@@ -2358,7 +2387,11 @@
             <!-- x:Name 供全屏退出时做淡入用(400px 的一大块"啪"地出现很跳) -->
             <Grid x:Name="InfoPanel" Grid.Column="1" Background="{DynamicResource AppBackgroundBrush}">
                 <Border x:Name="InfoContentHost" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1,0,0,0">
+                    <!-- ★ 悬浮滚动条(OverlayScrollViewerStyle): 评论加载中列表变短时,
+                         滚动条消失不该把内容区撑宽 18px(用户报"标题/UP 主整块横向抖一下")。
+                         见 Styles.xaml 该样式的说明。 -->
                     <ScrollViewer x:Name="InfoScroll" VerticalScrollBarVisibility="Auto"
+                                  Style="{StaticResource OverlayScrollViewerStyle}"
                                   ScrollChanged="OnInfoScrollChanged">
                         <StackPanel Margin="20,18,20,24">
                             <!-- 标题 + 数据 -->
@@ -3238,6 +3271,12 @@
                                                                 <ContentControl Content="{Binding}" Margin="0,6,0,0" HorizontalAlignment="Left"
                                                                                 ContentTemplate="{StaticResource CommentPicturesTemplate}"
                                                                                 Visibility="{Binding HasPictures, Converter={StaticResource BoolToVis}}" />
+                                                                <!-- UP 主觉得很赞: 淡强调色底的圆角方框(共享样式) -->
+                                                                <Border Style="{StaticResource UpLikedBadgeStyle}" Margin="0,3,0,0"
+                                                                        Visibility="{Binding IsUpLiked, Converter={StaticResource BoolToVis}}">
+                                                                    <TextBlock Text="{Binding UpLikedText}" FontSize="10"
+                                                                               Foreground="{DynamicResource TextOnAccentBrush}" />
+                                                                </Border>
                                                                 <ContentControl Content="{Binding}"
                                                                                 HorizontalAlignment="Left" Margin="0,6,0,0"
                                                                                 ContentTemplate="{StaticResource CommentActionBarTemplate}" />
@@ -3305,6 +3344,12 @@
                                                                     <ContentControl Content="{Binding}" Margin="0,4,0,0" HorizontalAlignment="Left"
                                                                                     ContentTemplate="{StaticResource CommentPicturesTemplate}"
                                                                                     Visibility="{Binding HasPictures, Converter={StaticResource BoolToVis}}" />
+                                                                    <!-- UP 主觉得很赞: 淡强调色底的圆角方框(共享样式) -->
+                                                                    <Border Style="{StaticResource UpLikedBadgeStyle}" Margin="0,2,0,0"
+                                                                            Visibility="{Binding IsUpLiked, Converter={StaticResource BoolToVis}}">
+                                                                        <TextBlock Text="{Binding UpLikedText}" FontSize="10"
+                                                                                   Foreground="{DynamicResource TextOnAccentBrush}" />
+                                                                    </Border>
                                                                     <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
                                                                         <ContentControl Content="{Binding}"
                                                                                         ContentTemplate="{StaticResource CommentActionBarTemplate}" />
@@ -3337,7 +3382,7 @@
                 </Border>
 
                 <!-- ============ 直播弹幕列表(2026-11-13) ============
-                     ★ 只做「看」: 礼物 / 大航海 / 发弹幕按需求不做。
+                     ★ 2026-11-28 起支持发送纯文本弹幕(右侧底部输入框); 礼物 / 大航海仍不做。
                      ★ 与滚动弹幕层是**两条独立通道**:
                        · 这里的聊天记录与「弹幕开关」无关, 关掉滚动弹幕也能看历史;
                        · 暂停/缓冲时也照常追加(直播没有"补播"语义, 但聊天记录不该断)。
@@ -3350,6 +3395,8 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
+                        <!-- 发送区(2026-11-28): 基础版只做纯文本弹幕 -->
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <!-- ===== 主播信息(2026-11-13): 头像/昵称可点进 UP 主主页 ===== -->
@@ -3463,6 +3510,41 @@
                                Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12"
                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                IsHitTestVisible="False" />
+
+                    <!-- ===== 发送区(2026-11-28) =====
+                         ★ 基础版只做纯文本: 颜色固定白色、位置固定滚动, 不弹颜色/位置选择器。
+                         ★ 未登录时输入框禁用, 占位提示直接说明原因 —— 不让用户敲完再点发送报错。
+                         ★ 用 FluentTextBoxStyle 但把高度/内边距压到单行尺寸; 占位提示是叠在
+                           输入框上的 TextBlock(TextBox 本身没有 Placeholder), 由代码控制显隐。 -->
+                    <Border Grid.Row="3" BorderBrush="{DynamicResource DividerBrush}"
+                            BorderThickness="0,1,0,0" Padding="12,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <Grid Grid.Column="0">
+                                <TextBox x:Name="LiveDanmakuDraft"
+                                         Style="{StaticResource FluentTextBoxStyle}"
+                                         Height="34" Padding="10,0" FontSize="12.5"
+                                         VerticalContentAlignment="Center"
+                                         MaxLength="20" TextWrapping="NoWrap"
+                                         TextChanged="OnLiveDanmakuDraftChanged"
+                                         PreviewKeyDown="OnLiveDanmakuDraftPreviewKeyDown" />
+                                <TextBlock x:Name="LiveDanmakuPlaceholder" Text="发个弹幕吧…"
+                                           Margin="11,0,0,0" VerticalAlignment="Center"
+                                           FontSize="12.5" IsHitTestVisible="False"
+                                           Foreground="{DynamicResource TextTertiaryBrush}" />
+                            </Grid>
+
+                            <Button x:Name="BtnSendLiveDanmaku" Grid.Column="1" Content="发送"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Margin="8,0,0,0" Padding="16,0" Height="34"
+                                    Click="OnSendLiveDanmakuClick" ToolTip="发送弹幕 (Enter)"
+                                    IsEnabled="False" />
+                        </Grid>
+                    </Border>
                   </Grid>
                 </Border>
 
@@ -3789,14 +3871,18 @@
                         <!-- ★ 面板头行: 展开高度切换(2026-11-01)。
                              长评(1000 字上限)在 66px 的默认框里只能看见两三行, 写到后面全是"摸黑改";
                              这个小按钮把输入框拉到 200px, 写长文时能整篇通读再发。
-                             图标随状态换(下箭头=展开 / 上箭头=收回), 动画在代码 ApplyComposerSize。 -->
+                             图标随状态换(上箭头=展开 / 下箭头=收回), 映射在代码 ApplyComposerSize。
+                             ★ 与 HomePage 的历史下拉**方向相反**, 是刻意的: 箭头指"内容要长出去的方向"。
+                               面板贴底(VerticalAlignment=Bottom), 66→200 时顶边上移、底边不动,
+                               内容向上长 → 收起态给上箭头; 下拉那边内容长在下面, 才用下箭头。
+                               (2026-11-27 评审 PR #130 定稿: 原注释写反了, 别再翻回去) -->
                         <DockPanel Margin="0,0,0,6">
                             <Button DockPanel.Dock="Right" x:Name="BtnComposerExpand"
                                     Style="{StaticResource SubtleButtonStyle}"
                                     Width="26" Height="26" Padding="0" Margin="0"
                                     Click="OnComposerExpandClick"
                                     ToolTip="展开输入框, 写长评时能通读全文">
-                                <TextBlock x:Name="ComposerExpandIcon" Text="&#xE70D;"
+                                <TextBlock x:Name="ComposerExpandIcon" Text="&#xE70E;"
                                            FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
                                            FontSize="11"
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
@@ -3836,10 +3922,13 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <!-- Height 由代码控制(普通 66 / 展开 200, 带动画); XAML 只给初值 -->
+                            <!-- ★ 2026-11-28 与私信输入框一致, 评论框改为**跟随内容自动长高**:
+                                 不设 Height, 由 MinHeight(66, 约两三行)撑住静止态, 写长评时
+                                 一行行长到 MaxHeight(200, 约九行), 再多就在框内滚动。
+                                 展开按钮随之退化为"固定展开"(见 PlayerWindow.CommentActions.ApplyComposerSize)。 -->
                             <TextBox x:Name="CommentDraft" Grid.Column="0"
                                      Style="{StaticResource FluentTextBoxStyle}"
-                                     Height="66" MaxLength="1000"
+                                     MinHeight="66" MaxHeight="200" MaxLength="1000"
                                      TextWrapping="Wrap" AcceptsReturn="True"
                                      VerticalScrollBarVisibility="Auto"
                                      TextChanged="OnCommentDraftChanged"

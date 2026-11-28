@@ -449,7 +449,7 @@ public partial class PlayerWindow : FluentWindow
         try
         {
             var (cmtOk, cmtErr, list, total, nextCursor, isEnd) =
-                await Svc.Api.GetCommentsAsync(aidAtStart, 30, _commentSort);
+                await Svc.Api.GetCommentsAsync(aidAtStart, 30, _commentSort, upperMid: _ownerMid);
             // 实际拿到的列表按哪个顺序排(热门的"空列表回退"会把它改成 2)。
             // ★ 不回写 _commentSort: 那是用户跨视频记住的偏好, 不能因为一个视频热门为空
             //   就永久改成时间; 排序入口只按本次实际顺序点亮。
@@ -471,7 +471,7 @@ public partial class PlayerWindow : FluentWindow
             if (cmtOk && _commentSort == 3 && CommentWindow.ShouldFallbackHot(hotRootCount, total))
             {
                 var (fbOk, _, fbList, fbTotal, fbNext, fbEnd) =
-                    await Svc.Api.GetCommentsAsync(aidAtStart, 30, 2);
+                    await Svc.Api.GetCommentsAsync(aidAtStart, 30, 2, upperMid: _ownerMid);
                 if (fbOk && fbList.Count > list.Count && _commentSort == 3)
                 {
                     PlayerLog.Write(
@@ -503,6 +503,12 @@ public partial class PlayerWindow : FluentWindow
                 }
                 if (!ReferenceEquals(CommentList.ItemsSource, _commentItems))
                     CommentList.ItemsSource = _commentItems;
+                // ★ 事件流水(2026-11-28): 整份评论集合换掉会触发整列表重新排版,
+                //   评论多的时候是已知最慢的 UI 路径之一。
+                //   ★ 这里**只记流水, 不打 BeginUiOperation 标记**: 赋值只是把布局标脏,
+                //     真正的排版发生在随后 WPF 自己那一轮布局里 —— 用 using 包住这行
+                //     根本包不到它, 只会给人"这条路径已经覆盖了"的错觉。
+                DiagnosticsState.Note($"评论列表已更新({_commentItems.Count} 条)");
                 _commentNext = nextCursor;
                 _commentHasMore = !isEnd && nextCursor > 0;
                 _commentLoadMoreFailed = false;
@@ -712,7 +718,7 @@ public partial class PlayerWindow : FluentWindow
         try
         {
             var (ok, err, more, total, nextCursor, isEnd) =
-                await Svc.Api.GetCommentsAsync(aidAtStart, 30, _effectiveCommentSort, next);
+                await Svc.Api.GetCommentsAsync(aidAtStart, 30, _effectiveCommentSort, next, upperMid: _ownerMid);
             if (_closing || _aid != aidAtStart || _commentListVersion != versionAtStart) return;
             if (!ok)
             {
@@ -1549,7 +1555,7 @@ public partial class PlayerWindow : FluentWindow
             var guard = 0;
             while (!_closing && root.HasMoreReplies && guard++ < 3)
             {
-                var (_, _, more) = await Svc.Api.GetReplyRepliesAsync(aidAtStart, root.Rpid, pn: root.RepliesNextPage, ps: 20);
+                var (_, _, more) = await Svc.Api.GetReplyRepliesAsync(aidAtStart, root.Rpid, pn: root.RepliesNextPage, ps: 20, upperMid: _ownerMid);
                 if (_closing || _aid != aidAtStart) return;
                 // 用户已经关掉详情页(或换到别的线程): 不能再往 root 里塞回复 ——
                 // 关闭时已经把 Replies 收回到预览量(见 CommentItem.TrimRepliesToPreview),
@@ -1564,8 +1570,16 @@ public partial class PlayerWindow : FluentWindow
                 root.RepliesNextPage++;
                 var seen = new HashSet<long>(root.Replies.Select(x => x.Rpid));
                 var added = 0;
-                foreach (var r in more)
-                    if (r.Rpid > 0 && seen.Add(r.Rpid)) { root.Replies.Add(r); added++; }
+                // ★ 诊断标记(2026-11-28): 这条路径已知很慢(实测 100 条楼中楼排版要 6 秒,
+                //   用户看到的就是"详情页卡死")。冻结看门狗靠这个标记判断卡在哪。
+                //   ★★ 标记必须只包住**这一段同步的 Add**: 上面那句 await 拉接口时
+                //     UI 线程其实是空闲的, 把整段方法包进标记会让"当时在做"在等待网络
+                //     的那几秒里一直报这个, 把真正的原因盖掉。
+                using (DiagnosticsState.BeginUiOperation("楼中楼回复入列表"))
+                {
+                    foreach (var r in more)
+                        if (r.Rpid > 0 && seen.Add(r.Rpid)) { root.Replies.Add(r); added++; }
+                }
                 if (added == 0) break;
                 // 让出一帧: 20 条富文本模板的实例化/排版会占满 UI 线程
                 await Dispatcher.Yield(DispatcherPriority.Background);

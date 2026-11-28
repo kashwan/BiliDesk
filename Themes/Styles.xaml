@@ -1287,7 +1287,7 @@
     </Style>
 
     <!-- ============ 胶囊式标签(Pill tabs) ============
-         首页「推荐 / 热门 / 排行榜」以及收藏页的收藏夹标签都用它。
+         首页「推荐 / 热门 / 影视」以及收藏页的收藏夹标签都用它。
 
          和 SegmentRadioStyle 的区别: 那个是"分段控件", 选中项只有一层几乎看不见的浅灰;
          这个把选中项直接铺成强调色胶囊, 文字用按对比度推导的 TextOnAccentBrush,
@@ -2388,6 +2388,51 @@
             </Trigger>
         </Style.Triggers>
     </Style>
+
+    <!-- ============ 悬浮滚动条容器(2026-11-28) ============
+         给"内容会变长变短"的 ScrollViewer 用: 纵向/横向滚动条**盖在内容上**,
+         不再像默认模板那样单独占一列(12px 条 + 6px 右边距 = 18px)。
+
+         ★ 起因(用户报"切换评论区时滚动条消失, 标题和 UP 主整块向右横向扩大"):
+           播放器信息栏(InfoScroll)里是"标题 / UP 主卡片 / tab 行 / 简介或评论"。
+           刚切到「评论」tab、评论还没回来时, 内容高度不足一屏 → Auto 滚动条整条消失
+           → 内容区一下多出 18px → 标题和 UP 主卡片向右撑开、重新换行;
+           评论加载完滚动条回来, 又缩回原样。用户看到的就是整块横向抖一下。
+         ★ 为什么不用 VerticalScrollBarVisibility="Visible" 硬留位置:
+           那会在"内容根本不需要滚动"时也常驻一条拖不动的滚动条(鼠标扫过信息栏就亮),
+           比抖动更碍眼。悬浮方案只在真要滚动时出现, 且不占布局宽度, 出现/消失零重排。
+         ★ 前提: 内容自身右侧留白 >= 18px(滚动条 12px + 右间距 6px), 否则滚动条会压字。
+           目前只给信息栏(StackPanel 右边距 20)和动态详情(20)用, 别套到无右边距的页面。
+         ★ PART_ScrollContentPresenter / PART_VerticalScrollBar / PART_HorizontalScrollBar
+           三个名字是 ScrollViewer 认模板的硬约定, 缺一个滚轮/拖动就失效(见 WheelScroll);
+           Maximum/ViewportSize/Value 的绑定也一个不能少 —— 滑块位置全由它们算。 -->
+    <Style x:Key="OverlayScrollViewerStyle" TargetType="ScrollViewer">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid Background="{TemplateBinding Background}">
+                        <ScrollContentPresenter x:Name="PART_ScrollContentPresenter"
+                                                Margin="{TemplateBinding Padding}"
+                                                CanContentScroll="{TemplateBinding CanContentScroll}" />
+                        <ScrollBar x:Name="PART_VerticalScrollBar" Orientation="Vertical"
+                                   HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                                   Panel.ZIndex="1" Cursor="Arrow"
+                                   Maximum="{TemplateBinding ScrollableHeight}"
+                                   ViewportSize="{TemplateBinding ViewportHeight}"
+                                   Value="{TemplateBinding VerticalOffset}"
+                                   Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" />
+                        <ScrollBar x:Name="PART_HorizontalScrollBar" Orientation="Horizontal"
+                                   HorizontalAlignment="Stretch" VerticalAlignment="Bottom"
+                                   Panel.ZIndex="1" Cursor="Arrow"
+                                   Maximum="{TemplateBinding ScrollableWidth}"
+                                   ViewportSize="{TemplateBinding ViewportWidth}"
+                                   Value="{TemplateBinding HorizontalOffset}"
+                                   Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <!-- ============ 列表编辑模式 ============ -->
 
     <!--
@@ -2612,6 +2657,32 @@
         <Setter Property="CornerRadius" Value="3" />
         <Setter Property="Padding" Value="5,1" />
         <Setter Property="Margin" Value="0,0,5,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+
+    <!-- 「UP主觉得很赞」小标签(2026-11-27, PR #132): 评论被 UP 主点赞时显示的一行小字。
+         ★ 形态: **实心强调色底 + 圆角方框 + 白字**, 与项目里其它小徽章(置顶/UP/等级)
+           同一套观感 —— 那几个也是"实底 + 白/深色字"。
+         ★ 为什么底色是**实心**而不是淡强调色(2026-11-27 改, 用户要求白字):
+           淡强调底(AccentSoftFillBrush)合成后是 #F4E5E9 这种很浅的粉,
+           **白字压上去只有 1.22:1** —— 浅色主题下等于看不见。
+           换成实心底后白字压 #FB7299 是 2.64:1, 与 B 站官方「UP」标同一配法。
+         ★ 文字用 TextOnAccentBrush 而不是写死白色: 它由 ThemeService 的 OnAccentFor
+           按**底色亮度**自动取黑/白(浅色主题色上白字会糊成一片)。默认粉底 → 白字,
+           用户把主题色调成浅黄/浅绿时自动变黑字, 任何主题色下都读得清。
+         ★ 放应用级(这里)而不是各自的 XAML: 视频评论区(PlayerWindow)与动态评论区
+           (CommentSection)都要用, 抄两遍的话改一次颜色容易漏改一处。
+         ★ 尺寸(2026-11-27 用户要求"标签大小调小一些"): 字号 12 → 10, 内边距 5,1 → 4,1,
+           圆角 4 → 3 —— 与同屏的「置顶 / UP / 等级」小标(9~9.5px)观感接近, 但仍是
+           一行**可读的整句**, 不一味追平小标字号。字号写在各自模板里(6 处), 改时要一起改。
+         ★ IsHitTestVisible=False: 纯展示, 不该截走点击(同 FollowedBadgeStyle 的理由)。 -->
+    <Style x:Key="UpLikedBadgeStyle" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Padding" Value="4,1" />
+        <Setter Property="Margin" Value="0,4,0,0" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="IsHitTestVisible" Value="False" />
     </Style>

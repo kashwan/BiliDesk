@@ -327,11 +327,17 @@
 
                 <!-- 顶部内边距 44: 内嵌页盖在内容区上、也从窗口最上沿开始,
                      返回按钮要落到右上角窗口按钮(y=4~36)的下方, 否则和它们叠在一起 -->
+                <!--
+                    DockPanel 而不是 StackPanel: 返回按钮的停靠边由代码按页面类型切换 ——
+                    UP 主主页 / 番剧详情 / 合集详情都把返回放右上角(2026-11-27、2026-11-28 用户要求)。
+                    LastChildFill 让标题占住剩余宽度, 两种停靠边下标题都在左侧。
+                -->
                 <Border Grid.Row="0" Padding="36,44,36,14"
                         Background="{DynamicResource AppBackgroundBrush}"
                         BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,0,0,1">
-                    <StackPanel Orientation="Horizontal">
-                        <Button Style="{StaticResource SubtleButtonStyle}" Click="OnEmbeddedBackClick"
+                    <DockPanel LastChildFill="True">
+                        <Button x:Name="EmbeddedBackButton" DockPanel.Dock="Left"
+                                Style="{StaticResource SubtleButtonStyle}" Click="OnEmbeddedBackClick"
                                 Padding="10,6" FontSize="13" VerticalAlignment="Center" ToolTip="返回上一页">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xE72B;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
@@ -342,7 +348,7 @@
                         <TextBlock x:Name="EmbeddedTitle" Margin="14,0,0,0" FontSize="13"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
-                    </StackPanel>
+                    </DockPanel>
                 </Border>
 
                 <ContentPresenter x:Name="EmbeddedContent" Grid.Row="1" />
@@ -458,10 +464,22 @@
                         <TextBlock Text="动态详情" FontSize="15" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextPrimaryBrush}"
                                    VerticalAlignment="Center" />
+                        <!-- 关闭按钮的 ✕ 用矢量图标(2026-11-28 用户报"X 不在按钮正中间"):
+                             E711 字形在 ContentPresenter 里居中的是**行框**, 墨迹在 em 框里
+                             天然偏左上(125% 缩放下实测约 0.4~0.5 DIP, 96 DPI 下两轴都偏 0.5)。
+                             换成就地对称的 CloseIconGeometry 后, 墨迹中心与按钮中心严格重合,
+                             也不再依赖系统图标字体是否齐全。 -->
                         <Button HorizontalAlignment="Right" Style="{StaticResource IconButtonStyle}"
-                                Content="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                                FontSize="12" Width="32" Height="32"
-                                Click="OnDynamicDetailCloseClick" ToolTip="关闭 (Esc)" />
+                                Width="32" Height="32"
+                                Click="OnDynamicDetailCloseClick" ToolTip="关闭 (Esc)">
+                            <Viewbox Width="18" Height="18" Stretch="Uniform">
+                                <Path Data="{StaticResource CloseIconGeometry}"
+                                      Width="20" Height="20" Stretch="None"
+                                      StrokeThickness="1.6"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                            </Viewbox>
+                        </Button>
                     </Grid>
                     <controls:DynamicDetailView x:Name="DynamicDetailHost" Grid.Row="1" />
                 </Grid>

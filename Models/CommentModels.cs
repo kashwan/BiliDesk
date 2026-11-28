@@ -75,6 +75,25 @@ public class CommentItem : System.ComponentModel.INotifyPropertyChanged
     /// </summary>
     public bool IsUp { get; set; }
 
+    /// <summary>取不到接口文案时的兜底文案(与 B 站现网一致, 无空格)</summary>
+    public const string DefaultUpLikedText = "UP主觉得很赞";
+
+    /// <summary>
+    /// 这条评论是否被 UP 主点过赞(接口 <c>up_action.like</c>)。
+    /// 界面在正文和点赞按钮之间挂一行小字"UP主觉得很赞"。
+    /// </summary>
+    public bool IsUpLiked { get; set; }
+
+    /// <summary>
+    /// "UP主觉得很赞"这行小字的**文案**。
+    ///
+    /// ★ 为什么从接口取而不是写死: B 站在评论条目的 <c>card_label</c> 数组里
+    ///   下了这段文字(实测 text_content = "UP主觉得很赞", 2026-11-27 抓取)。
+    ///   官方改了文案我们跟着改, 不用等发版。取不到时回落到
+    ///   <see cref="DefaultUpLikedText"/>。
+    /// </summary>
+    public string UpLikedText { get; set; } = DefaultUpLikedText;
+
     /// <summary>
     /// 这条是不是**置顶评论**(UP 主置顶 / 管理员置顶)。
     ///
@@ -193,6 +212,50 @@ public class CommentItem : System.ComponentModel.INotifyPropertyChanged
 
     public bool HasLocation => Location.Length > 0;
 
+    // ------------------------------------------------------------ 删除评论(2026-11-28)
+
+    /// <summary>
+    /// 解析这条评论时**当前登录用户**的 mid。0 = 未登录 / 没取到。
+    ///
+    /// ★ 为什么在解析时快照而不是实时读会话: 删除入口的显隐由
+    ///   <see cref="CanDelete"/> 决定, 它要跟"这条评论属于谁"比较。
+    ///   同一份列表可能跨登录态存在(退出后仍留在屏幕上), 实时读会让
+    ///   已经渲染出来的按钮显隐和 <see cref="CanDelete"/> 的判定不同步。
+    /// </summary>
+    public long SelfMid { get; set; }
+
+    /// <summary>
+    /// 这条评论所在**稿件 / 动态的作者 mid**(视频的 UP 主、动态的发布者)。
+    /// 0 = 调用方拿不到。
+    ///
+    /// ★ 作者对自己地盘里的评论有删除权(不只限于自己的评论) —— 与 B 站 web 端一致。
+    /// </summary>
+    public long OwnerMid { get; set; }
+
+    private bool _deleteBusy;
+
+    /// <summary>删除请求进行中(防连点; 请求回来前入口暂时不可用)</summary>
+    public bool DeleteBusy
+    {
+        get => _deleteBusy;
+        set
+        {
+            if (_deleteBusy == value) return;
+            _deleteBusy = value;
+            Raise(nameof(DeleteBusy));
+            Raise(nameof(CanDeleteNow));
+        }
+    }
+
+    /// <summary>
+    /// 这条评论**有没有删除权**: 自己发的, 或者自己是本稿件/动态的作者。
+    /// 未登录(SelfMid=0)一律 false, 删除入口整块不显示。
+    /// </summary>
+    public bool CanDelete => Rpid > 0 && SelfMid > 0 && (Mid == SelfMid || OwnerMid == SelfMid);
+
+    /// <summary>入口是否可点(权限之外还要避开正在进行的删除请求)</summary>
+    public bool CanDeleteNow => CanDelete && !_deleteBusy;
+
     // ------------------------------------------------------------ @提及(2026-10-30)
 
     /// <summary>
@@ -266,8 +329,10 @@ public class CommentItem : System.ComponentModel.INotifyPropertyChanged
 
     // ------------------------------------------------------------ 楼中楼预览方框
 
-    /// <summary>方框底部那行提示文字(点整框进详情页)</summary>
-    public string ReplyBoxText => ReplyCount > 0 ? $"共 {ReplyCount} 条回复" : "";
+    /// <summary>方框底部那行提示文字(点整框进详情页)。
+    /// ★ 2026-11-28: 预览框已经把全部回复都列出来时, 不再显示"共 N 条回复" ——
+    ///   条数就摆在眼前, 再报一遍纯属重复; 只有还有没显示的回复时才需要提示总数。</summary>
+    public string ReplyBoxText => ReplyCount > PreviewReplies.Count ? $"共 {ReplyCount} 条回复" : "";
 
     /// <summary>
     /// 方框/详情页里一条回复的**前缀**(用户名那一截)。
@@ -349,6 +414,8 @@ public class CommentItem : System.ComponentModel.INotifyPropertyChanged
     {
         PreviewReplies.Clear();
         foreach (var r in Replies.Take(max)) PreviewReplies.Add(r);
+        // 预览条数变了 → "共 N 条回复"的显示条件也跟着变(全部已显示时要收起来)
+        Raise(nameof(ReplyBoxText));
     }
 
     /// <summary>

@@ -36,8 +36,15 @@ public partial class HomePage : UserControl, IRefreshable
     /// <summary>预取阈值 = max(下限, 2 × 视口高)。视口量不出来时退回下限。</summary>
     private static double AutoLoadThresholdFor(ScrollViewer sv)
         => Math.Max(AutoLoadThresholdMin, sv.ViewportHeight * 2.0);
-    // 防止连续自动填充死循环
-    private int _autoFillCount;
+
+    /// <summary>
+    /// 连续自动补页的闸门(见 <see cref="AutoFillGuard"/>)。
+    ///
+    /// ★★★ 2026-11-28: 原来这里是 `_autoFillCount++ / finally { _autoFillCount--; }` ——
+    ///   await 一结束就减回去, 计数器只等于"在飞请求数", **永远到不了上限 5**, 连续补页
+    ///   没有刹车。改成只增不减, 由用户滚动 / 切 tab 来重置(与搜索页同一套)。
+    /// </summary>
+    private readonly AutoFillGuard _autoFillGuard = new();
 
     /// <summary>自动加载的公共闸门: 缩放/布局变化时不立即翻页(见 <see cref="AutoLoadThrottle"/>)。</summary>
     private readonly AutoLoadThrottle _autoLoadThrottle = new();
@@ -60,7 +67,7 @@ public partial class HomePage : UserControl, IRefreshable
         InitializeComponent();
         PopularTab.Checked += OnPopularChecked;
         RecommendTab.Checked += OnRecommendChecked;
-        RankingTab.Checked += OnRankingChecked;
+        MovieTab.Checked += OnMovieChecked;
         LiveTab.Checked += OnLiveChecked;
         BangumiTab.Checked += OnBangumiChecked;
         // 页面被重新挂载到可视树时刷新问候语(应用长时间挂在后台再切回来, 文案要跟着时段变)
@@ -245,8 +252,6 @@ public partial class HomePage : UserControl, IRefreshable
             isActive: () => IsVisible && Vm?.IsRecommendTab == true);
         FilterService.Instance.Attach(Vm.PopularItems,
             isActive: () => IsVisible && Vm?.IsPopularTab == true);
-        FilterService.Instance.Attach(Vm.RankingItems,
-            isActive: () => IsVisible && Vm?.IsRankingTab == true);
         FilterService.Instance.Attach(Vm.LiveItems,
             isActive: () => IsVisible && Vm?.IsLiveTab == true);
     }
@@ -528,10 +533,10 @@ public partial class HomePage : UserControl, IRefreshable
         if (DataContext is HomeViewModel vm) _ = vm.SwitchToRecommendAsync();
     }
 
-    private void OnRankingChecked(object sender, RoutedEventArgs e)
+    private void OnMovieChecked(object sender, RoutedEventArgs e)
     {
-        ShowTab(HomeTabKind.Ranking);
-        if (DataContext is HomeViewModel vm) _ = vm.SwitchToRankingAsync();
+        ShowTab(HomeTabKind.Movie);
+        if (DataContext is HomeViewModel vm) _ = vm.SwitchToMovieAsync();
     }
 
     private void OnLiveChecked(object sender, RoutedEventArgs e)
@@ -548,7 +553,7 @@ public partial class HomePage : UserControl, IRefreshable
 
     // ------------------------------------------------------------ 五个 tab 的列表(常驻, 不再摘挂)
 
-    private enum HomeTabKind { Recommend, Popular, Ranking, Live, Bangumi }
+    private enum HomeTabKind { Recommend, Popular, Movie, Live, Bangumi }
 
     /// <summary>
     /// 每个 tab 一个 DeferredFill, **建一次、永驻**。
@@ -573,13 +578,12 @@ public partial class HomePage : UserControl, IRefreshable
     {
         HomeTabKind.Recommend => RecommendList,
         HomeTabKind.Popular => PopularList,
-        HomeTabKind.Ranking => RankingList,
         HomeTabKind.Live => LiveList,
-        // 追番页是**三段分区**(我的追番 / 番剧推荐 / 国创推荐), 没有"一个列表"可填。
-        // 返回 null 让 EnsureFill 直接返回 —— 不给哪一段挂填充器, 三段就都按普通
-        // ItemsControl 生成。代价是切到该页时一次生成 ~75 张卡; 可以接受, 因为海报卡
-        // 的标题走 TextTrimming(不换行), 没有 VideoCard 那种"换行排版"的昂贵测量
-        // —— 那才是 CardWallPanel 要把全墙重测摊开的主因。
+        // 影视页是**多段栏目**(我的追剧 + 正在热播 + 四个热播榜), 没有"一个列表"可填;
+        // 追番页同样有两段分区(我的追番 / 番剧推荐)。返回 null 让 EnsureFill 直接返回 ——
+        // 不给哪一段挂填充器, 各段就都按普通 ItemsControl 生成。代价是切到该页时一次
+        // 生成较多海报卡; 可以接受, 因为海报卡标题走 TextTrimming(不换行), 没有
+        // VideoCard 那种"换行排版"的昂贵测量 —— 那才是 CardWallPanel 要把全墙重测摊开的主因。
         _ => null,
     };
 
@@ -587,7 +591,7 @@ public partial class HomePage : UserControl, IRefreshable
     {
         HomeTabKind.Recommend => RecommendScroll,
         HomeTabKind.Popular => PopularScroll,
-        HomeTabKind.Ranking => RankingScroll,
+        HomeTabKind.Movie => MovieScroll,
         HomeTabKind.Live => LiveScroll,
         HomeTabKind.Bangumi => BangumiScroll,
         _ => null,
@@ -597,7 +601,6 @@ public partial class HomePage : UserControl, IRefreshable
     {
         HomeTabKind.Recommend => vm.RecommendItems,
         HomeTabKind.Popular => vm.PopularItems,
-        HomeTabKind.Ranking => vm.RankingItems,
         HomeTabKind.Live => vm.LiveItems,
         _ => null,
     };
@@ -612,6 +615,9 @@ public partial class HomePage : UserControl, IRefreshable
     private void ShowTab(HomeTabKind tab)
     {
         EnsureFill(tab);
+        // ★ 换 tab = 换了一整批内容: 连续补页额度重开, 否则在 A tab 上补满 5 次后,
+        //   切到 B tab 就再也补不动了(两个 tab 的滚动事件共用一个闸门)。
+        _autoFillGuard.Reset();
         // 切 tab 后「刷新 / 回到顶部」要跟着新列表的滚动位置走(那个 tab 可能本来就停在顶部)
         UpdateTopRefresh(ScrollOf(tab));
         // 分段标签的下划线跟着选中项走
@@ -636,10 +642,10 @@ public partial class HomePage : UserControl, IRefreshable
         if (src == null) return;
 
         // 分帧挂载: 首批在下一帧(Background 优先级, 点击的布局/渲染先走), 其余按帧补。
-        // 为什么必须这样: 四个列表都是 ItemsControl + WrapPanel(外层还有自己的 ScrollViewer),
+        // 为什么必须这样: 三个列表都是 ItemsControl + WrapPanel(外层还有自己的 ScrollViewer),
         // **没有任何虚拟化** —— ItemsSource 一挂, 几十上百张 VideoCard 容器在一次布局里同步生成,
-        // 表现就是"点热门/排行榜/直播入口卡一下"。把生成时机接管成分帧。
-        // 注意 XAML 里四份 ItemsSource 是初始绑定好的: 折叠状态的 ItemsControl 没被测量过,
+        // 表现就是"点热门/直播入口卡一下"。把生成时机接管成分帧。
+        // 注意 XAML 里三份 ItemsSource 是初始绑定好的: 折叠状态的 ItemsControl 没被测量过,
         // 容器其实还没生成, 所以这里把绑定替换成代理视图没有浪费。
         var fill = new DeferredFill(list, src, FillChunkSize);
         _fills[tab] = fill;
@@ -651,7 +657,7 @@ public partial class HomePage : UserControl, IRefreshable
     // 参考图: 选中的标签字变粉, 它下面有一根短横线; 换标签时那根线要**滑过去**。
     // 只动画一个属性就够 —— 线的宽度是固定的(见 HomePage.xaml 里的 TabIndicator), 所以只要把 X
     // 从旧位置挪到新位置; 不动画宽度也就不会"中途忽胖忽瘦"。
-    // 位置必须实测(TransformToAncestor): 四个标签文字长短不同(推荐/热门 vs 排行榜), 宽度不一样,
+    // 位置必须实测(TransformToAncestor): 标签文字长短不同(推荐/热门 vs 影视), 宽度不一样,
     // 靠固定间距是推不出来的。
 
     /// <summary>下划线滑过去的时长。比搜索卡那两段短 —— 它只是个小指示器, 不该抢戏。</summary>
@@ -664,7 +670,7 @@ public partial class HomePage : UserControl, IRefreshable
     {
         HomeTabKind.Recommend => RecommendTab,
         HomeTabKind.Popular => PopularTab,
-        HomeTabKind.Ranking => RankingTab,
+        HomeTabKind.Movie => MovieTab,
         HomeTabKind.Live => LiveTab,
         HomeTabKind.Bangumi => BangumiTab,
         _ => null
@@ -679,8 +685,8 @@ public partial class HomePage : UserControl, IRefreshable
     ///   改用 ScaleX 又有缩放锚点偏移的坑, 5 个标签里只有宽度变化的那两档会偏)。
     ///   宽度固定 ⇒ 不存在"位置与宽度不同步"这件事, 一条 DoubleAnimation 就够了。
     ///
-    /// ★ 位置必须**实测**(TransformToAncestor): 五个标签文字长短不同(推荐/热门 两字,
-    ///   排行榜/追番 三个), 宽度不一样, 靠固定间距推不出来。
+    /// ★ 位置必须**实测**(TransformToAncestor): 五个标签文字长短不同(推荐/热门/影视/直播/追番),
+    ///   宽度不一样, 靠固定间距推不出来。
     /// ★ 线要**在文字下面居中**: 所以 X 要在标签左边距上再加 (标签宽 − 线宽)/2。
     ///   少加这一项, 线会贴到标签左边缘, 看起来像"没对齐"。
     /// </summary>
@@ -710,7 +716,7 @@ public partial class HomePage : UserControl, IRefreshable
         // ★★ 顺序很关键: **先读当前 X, 再清动画**。
         //   反过来先清动画, X 会立刻回落到"上次动画开始前的本地值"(0),
         //   于是新动画从 0 起步 —— 表现就是"线先跳到最左边再滑回来"(实测从
-        //   排行榜切到别的档时会看到线从左上角飞过来, 因为 0 就是最左)。
+        //   影视切到别的档时会看到线从左上角飞过来, 因为 0 就是最左)。
         //   先读则拿到的是"上一次动画的当前值", 正是我们要的连续起点。
         var from = TabIndicatorTrans.X;
         ClearIndicatorAnimations();
@@ -732,7 +738,7 @@ public partial class HomePage : UserControl, IRefreshable
     {
         if (DataContext is not HomeViewModel vm) return null;
         if (vm.IsPopularTab) return HomeTabKind.Popular;
-        if (vm.IsRankingTab) return HomeTabKind.Ranking;
+        if (vm.IsMovieTab) return HomeTabKind.Movie;
         if (vm.IsLiveTab) return HomeTabKind.Live;
         if (vm.IsBangumiTab) return HomeTabKind.Bangumi;
         if (vm.IsRecommendTab) return HomeTabKind.Recommend;
@@ -777,7 +783,8 @@ public partial class HomePage : UserControl, IRefreshable
     /// <summary>通用: 滚动到底部 / 内容不够一屏时, 自动加载更多</summary>
     private async Task TriggerAutoLoad(ScrollViewer sv, HomeViewModel vm)
     {
-        if (_autoFillCount > 5) return; // 防止死循环
+        // ★ 连续补页上限(见 AutoFillGuard): 补了还是不满一屏时不能无限自补。
+        if (!_autoFillGuard.CanFill) return;
         if (vm.LoadingMore || vm.Loading) return;
 
         // ★ 防"延迟检查跑到别的 tab 上"(2026-11-09): AutoLoadThrottle 会把布局变化的判断
@@ -798,9 +805,9 @@ public partial class HomePage : UserControl, IRefreshable
         //   没有它的话一次拖窗口能触发好几页(见 AutoLoadThrottle)。
         if (!_autoLoadThrottle.TryEnter()) return;
 
-        _autoFillCount++;
-        try { await vm.LoadMoreAsync(); }
-        finally { _autoFillCount--; }
+        // ★ 只累加、不在 finally 里回退 —— 回退就等于没有上限(见 AutoFillGuard)。
+        _autoFillGuard.OnFilled();
+        await vm.LoadMoreAsync();
     }
 
     private void PopularScroll_OnScrollChanged(object sender, ScrollChangedEventArgs e)
@@ -808,7 +815,10 @@ public partial class HomePage : UserControl, IRefreshable
         UpdateTopRefresh((ScrollViewer)sender);
         if (DataContext is not HomeViewModel vm) return;
         var sv = (ScrollViewer)sender;
+        // ★ 必须先把布局变化那一类挡掉: 卡片墙补锚点自己调的 ScrollToVerticalOffset 也带
+        //   VerticalChange, 那是程序化滚动, 不能拿它给连续补页"充值"(见 AutoFillGuard)。
         if (_autoLoadThrottle.ShouldSkipLayoutChange(e, () => _ = TriggerAutoLoad(sv, vm))) return;
+        if (Math.Abs(e.VerticalChange) > 0.5) _autoFillGuard.Reset();
         _ = TriggerAutoLoad(sv, vm);
     }
 
@@ -818,6 +828,7 @@ public partial class HomePage : UserControl, IRefreshable
         if (DataContext is not HomeViewModel vm) return;
         var sv = (ScrollViewer)sender;
         if (_autoLoadThrottle.ShouldSkipLayoutChange(e, () => _ = TriggerAutoLoad(sv, vm))) return;
+        if (Math.Abs(e.VerticalChange) > 0.5) _autoFillGuard.Reset();
         _ = TriggerAutoLoad(sv, vm);
     }
 
@@ -827,6 +838,7 @@ public partial class HomePage : UserControl, IRefreshable
         if (DataContext is not HomeViewModel vm) return;
         var sv = (ScrollViewer)sender;
         if (_autoLoadThrottle.ShouldSkipLayoutChange(e, () => _ = TriggerAutoLoad(sv, vm))) return;
+        if (Math.Abs(e.VerticalChange) > 0.5) _autoFillGuard.Reset();
         _ = TriggerAutoLoad(sv, vm);
     }
 
@@ -839,8 +851,8 @@ public partial class HomePage : UserControl, IRefreshable
         e.Handled = true;
     }
 
-    /// <summary>排行榜不自动翻页(它是一次给完的), 但仍然要让「刷新 / 回到顶部」跟着滚动位置切换</summary>
-    private void RankingScroll_OnScrollChanged(object sender, ScrollChangedEventArgs e)
+    /// <summary>影视页不自动翻页(栏目一次给完), 但仍然要让「刷新 / 回到顶部」跟着滚动位置切换</summary>
+    private void MovieScroll_OnScrollChanged(object sender, ScrollChangedEventArgs e)
         => UpdateTopRefresh((ScrollViewer)sender);
     /// <summary>
     /// 追番页与其它滚动列表同款: 滚到底自动翻下一批推荐。
@@ -859,6 +871,7 @@ public partial class HomePage : UserControl, IRefreshable
         var sv = (ScrollViewer)sender;
         SyncBangumiActiveSection(sv, vm);
         if (_autoLoadThrottle.ShouldSkipLayoutChange(e, () => _ = TriggerAutoLoad(sv, vm))) return;
+        if (Math.Abs(e.VerticalChange) > 0.5) _autoFillGuard.Reset();
         _ = TriggerAutoLoad(sv, vm);
     }
 
@@ -1383,9 +1396,9 @@ public partial class HomePage : UserControl, IRefreshable
 /// 分帧挂载器: 把"ItemsSource 一挂就在一次布局里同步生成全部卡片容器"拆成
 /// 首屏一批 + 之后每帧一批。
 ///
-/// 为什么需要它: 首页四个列表是 ItemsControl + WrapPanel(外面还套了自己的 ScrollViewer),
+/// 为什么需要它: 首页几个列表是 ItemsControl + WrapPanel(外面还套了自己的 ScrollViewer),
 /// 这种结构**没有虚拟化**, 挂上几百条数据就同步生成几百张 VideoCard —— 用户点
-/// 热门/排行榜/直播入口时"卡一下"的直接来源。分帧之后点击瞬间只生成一批(约 24 张),
+/// 热门/直播入口时"卡一下"的直接来源。分帧之后点击瞬间只生成一批(约 24 张),
 /// 其余的插在渲染间隙里补, 眼睛看到的是"立刻出来了、多滚几下逐渐铺满", 而不是"卡死一下再全出来"。
 ///
 /// 实现要点:

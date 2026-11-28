@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -14,6 +15,7 @@ using BiliDesk.Models;
 using BiliDesk.Services;
 using BiliDesk.ViewModels;
 using BiliDesk.Views;
+using BiliDesk.Views.Controls;
 using BiliDesk.Views.Pages;
 
 namespace BiliDesk;
@@ -69,7 +71,7 @@ public partial class MainWindow : FluentWindow
 
         _vm.PageChanged += OnPageChanged;
         Svc.Toast.Shown += ShowToast;
-        // 鼠标侧键(拇指键) = 返回。挂在窗口的隧道路由上, 不会被页面里的控件吃掉。
+        // 鼠标侧键(拇指键) = 返回上一级。挂在窗口的隧道路由上, 不会被页面里的控件吃掉。
         PreviewMouseDown += OnPreviewMouseDown;
 
         // 分区面板: 3 列数据, 每列 10 个分区(来源与生成说明见 PartitionCatalog)
@@ -100,8 +102,10 @@ public partial class MainWindow : FluentWindow
         PreviewKeyDown += OnUserActivity;
         // F5 = 刷新当前页面(2026-11-12 用户要求"所有的刷新绑定到 F5")
         PreviewKeyDown += OnRefreshKey;
-        // Esc 关闭动态详情 / 评论输入面板
+        // Esc 关闭动态详情 / 评论输入面板(更靠内, 走隧道先处理)
         PreviewKeyDown += OnDynamicDetailKeyDown;
+        // Esc = 返回上一级(2026-11-28)。必须用冒泡: 搜索框自己要处理 Esc, 见 OnBackKeyDown。
+        KeyDown += OnBackKeyDown;
         Loaded += (_, _) => StartForegroundIdleTimer();
         Closed += (_, _) => _foregroundIdleTimer?.Stop();
     }
@@ -127,10 +131,21 @@ public partial class MainWindow : FluentWindow
     /// "滚回顶部、短内容补页"等视图动作, 必须复用它们原来那条路径;
     /// 只绑了命令的页面(历史/收藏/稍后再看/缓存/消息/UP 主页)退化为执行刷新命令。
     /// 内嵌页(UP 主主页等)盖在 PageLayer 上时, 先刷它。
+    ///
+    /// ★ 2026-11-28: 快捷键可配置后, 这里不再写死 Key.F5, 而是查 ShortcutService 的映射。
     /// </summary>
     private void OnRefreshKey(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.F5) return;
+        // 设置页正在录制新快捷键时, 不能把这次按键当成"刷新"用掉 ——
+        // 用户完全可能把某个播放器动作改成 F5(主窗口的处理器比捕获框先收到隧道事件)。
+        if (ShortcutBox.IsAnyCapturing) return;
+
+        if (Svc.Shortcuts.Match(e) != ShortcutAction.Refresh) return;
+
+        // 用户把刷新改成字母键后, 输入框里的正常打字不能被抢走。
+        // 默认的 F5 是功能键, 保持"任何焦点下都能刷新"的原有手感。
+        if (ShortcutService.RealKey(e) != Key.F5 && IsEditingText()) return;
+
         e.Handled = true;
 
         if (EmbeddedHost.Visibility == Visibility.Visible)
@@ -151,6 +166,10 @@ public partial class MainWindow : FluentWindow
         }
         TryRefreshByCommand(_currentPage);
     }
+
+    /// <summary>焦点是否在可编辑文本里(把刷新改成字母键后, 不能抢走正常打字)</summary>
+    private static bool IsEditingText()
+        => Keyboard.FocusedElement is TextBoxBase or PasswordBox;
 
     /// <summary>页面没有实现 <see cref="IRefreshable"/> 时: 直接执行 ViewModel 上的刷新命令。</summary>
     private static void TryRefreshByCommand(FrameworkElement? page)
@@ -244,7 +263,11 @@ public partial class MainWindow : FluentWindow
             // 分区页(也不在导航栏上): 入口是左上角 logo 的分区面板
             PageKey.Region => new RegionPage { DataContext = new RegionViewModel() },
             // 稍后再看(也不在导航栏上): 入口是「我的」页的快捷入口
-            _ => new WatchLaterPage { DataContext = new WatchLaterViewModel() }
+            PageKey.WatchLater => new WatchLaterPage { DataContext = new WatchLaterViewModel() },
+            // 我的订阅(也不在导航栏上): 入口是「我的」页的「我的订阅」/「查看更多」
+            PageKey.Subscription => new SubscriptionPage { DataContext = new SubscriptionViewModel() },
+            // 新增 PageKey 必须在这里显式接上; 别用兜底静默落到某一页
+            _ => throw new ArgumentOutOfRangeException(nameof(key), key, "未知页面")
         };
 
         _pages[key] = page;
@@ -252,11 +275,10 @@ public partial class MainWindow : FluentWindow
     }
 
     /// <summary>
-    /// 鼠标侧键(XButton1/XButton2) = 返回上一层。
+    /// 鼠标侧键(XButton1/XButton2) = 返回上一级。
     ///
-    /// 主窗口的"上一层"是**内嵌页**(UP 主主页那种盖在内容区上的页面, 可能已经叠了多层历史)。
-    /// 没有内嵌页时什么都不做 —— 不擅自把用户弹回首页: 在设置页/历史页按一下侧键
-    /// 就被踢走, 那是"误触"而不是"返回"。
+    /// 具体退哪一层由 <see cref="TryGoBackOneLevel"/> 决定(与 Esc 共用那一条);
+    /// 这里只负责"认键 + 吞事件"。
     ///
     /// 两个侧键都当返回: 各家鼠标把拇指键映射成哪个 XButton 并不统一, 本应用也没有
     /// "前进"这个语义可用(播放器那边同样处理)。
@@ -264,16 +286,72 @@ public partial class MainWindow : FluentWindow
     private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.XButton1 && e.ChangedButton != MouseButton.XButton2) return;
-        // 分区面板开着时, 侧键先把它收起来(优先级高于内嵌页, 因为面板压在最上层)
+        if (TryGoBackOneLevel()) e.Handled = true;
+    }
+
+    /// <summary>
+    /// 统一的"返回上一级"(2026-11-28 用户要求): 鼠标侧键与 Esc 共用。
+    ///
+    /// 由**内到外**逐级退 —— 与播放器的 PlayerWindow.HandleBackRequest 同一套路,
+    /// 两个入口走同一个方法, 否则很容易出现"Esc 是对的、侧键直接跳页"这种不一致:
+    ///   ① 动态详情遮罩(最内层; 评论输入面板先收面板) → 关详情;
+    ///   ② 分区面板 → 收起;
+    ///   ③ 内嵌页(UP 主主页 / 番剧详情 / 合集详情) → 弹内嵌返回栈;
+    ///   ④ 子页面(订阅 / 历史 / 稍后再看 / 收藏 / 离线缓存 / 私信) → 回来源页;
+    ///   ⑤ 其它页面(首页 / 动态 / 我的 / 设置 / 搜索 / 分区) → **什么都不做**。
+    ///
+    /// ★ 第 ⑤ 条是刻意的(原实现的注释就写着这条): 没有"上一级"的页面按一下侧键 / Esc
+    ///   就被弹走, 用户的心智是"误触"而不是"返回" —— 别把它做成全局后退按钮。
+    /// </summary>
+    /// <returns>true = 确实退了一层, 调用方据此决定吞不吞这次输入。</returns>
+    private bool TryGoBackOneLevel()
+    {
+        if (_dynamicDetailOpen)
+        {
+            // 与 Esc 原本的处理一致: 评论输入面板开着时先收面板, 再按一次才关详情。
+            if (DynamicDetailHost.IsComposerOpen) DynamicDetailHost.CloseComposer();
+            else CloseDynamicDetail();
+            return true;
+        }
+
+        // 分区面板压在内嵌页上面, 优先级更高(点开 logo 后它盖住整个内容区)。
         if (PartitionPanel.Visibility == Visibility.Visible)
         {
-            e.Handled = true;
             HidePartition();
-            return;
+            return true;
         }
-        if (EmbeddedHost.Visibility != Visibility.Visible) return;
-        e.Handled = true;
-        GoBackEmbedded();
+
+        if (EmbeddedHost.Visibility == Visibility.Visible)
+        {
+            GoBackEmbedded();
+            return true;
+        }
+
+        // ④ 子页面: 回到进入本页时的来源页(见 MainViewModel._origins 的说明)。
+        var current = _vm.Current;
+        if (!PageBackPolicy.IsChildPage(current)) return false;
+
+        _vm.Navigate(_vm.ResolveBackTarget(current));
+        return true;
+    }
+
+    /// <summary>
+    /// Esc = 返回上一级(2026-11-28 用户要求, 与侧键共用 <see cref="TryGoBackOneLevel"/>)。
+    ///
+    /// ★★ 必须挂**冒泡**的 KeyDown, 不能挂 PreviewKeyDown:
+    ///   页面里的搜索框(TabSearchBox / SearchBox)自己就在 KeyDown 里处理 Esc(先清关键词、
+    ///   空了才收圆)。隧道事件从窗口根往下走, 比搜索框先到 —— 用 Preview 会把那一层抢掉,
+    ///   表现就是"在搜索框里按 Esc 直接被弹回上一页"。
+    ///   挂冒泡后, 搜索框处理完把事件标记成已处理, 这里根本收不到; 正是想要的顺序。
+    /// ★ 动态详情那层由 OnDynamicDetailKeyDown(Preview)接管(它更靠内), 这里再兜一次
+    ///   防重复处理; 焦点在可编辑输入框里时 Esc 属于输入框自己(例如私信草稿), 一律放行。
+    /// </summary>
+    private void OnBackKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || e.Handled) return;
+        if (_dynamicDetailOpen) return;
+        if (Keyboard.FocusedElement is TextBox { IsReadOnly: false }) return;
+        if (TryGoBackOneLevel()) e.Handled = true;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -397,6 +475,14 @@ public partial class MainWindow : FluentWindow
 
         EmbeddedTitle.Text = title;
         EmbeddedContent.Content = page;
+
+        // UP 主主页 / 番剧详情 / 合集详情页的返回按钮放右上角(2026-11-27、2026-11-28 用户要求):
+        // 标题仍在左, 返回贴右。
+        // 按页面类型判断而不是按"谁调用了 ShowEmbeddedPage": 返回栈回弹的上一页也要还原同样的位置。
+        var backOnRight = page is UserSpacePage or BangumiPage or SpaceCollectionPage;
+        DockPanel.SetDock(EmbeddedBackButton, backOnRight ? Dock.Right : Dock.Left);
+        EmbeddedTitle.Margin = backOnRight ? new Thickness(0) : new Thickness(14, 0, 0, 0);
+
         // 页面层整体藏起来(显示中的那一页保持原状, 收起内嵌页后立刻还原, 不必重新布局)
         PageLayer.Visibility = Visibility.Collapsed;
         EmbeddedHost.Visibility = Visibility.Visible;
@@ -533,6 +619,13 @@ public partial class MainWindow : FluentWindow
         // (首次建页要解析整棵 XAML, 首页实测 ~360ms)。
         if (NavTransition.InFlight) NavTransition.FinishNow();
 
+        // ★ 诊断标记(2026-11-28): 建页 + 整页布局是已知最慢的 UI 路径之一
+        //   (首次建首页实测 ~360ms, 之后还有目标页的 UpdateLayout)。
+        //   冻结看门狗靠这个标记判断 UI 线程卡在哪(见 DiagnosticsState.BeginUiOperation)。
+        //   ★ 标记必须包住 **PageOf(真正建页)** —— 只包 ShowAnimated 的话,
+        //     最慢的那一段(解析整棵 XAML)反而落在标记外面, 等于没测到。
+        using var _pageScope = DiagnosticsState.BeginUiOperation("切换页面到 " + key);
+
         var target = PageOf(key);
 
         // 首次显示(窗口刚出来)不播过渡: 那时还没有"上一个页面"可淡出。
@@ -641,7 +734,7 @@ public partial class MainWindow : FluentWindow
     /// </summary>
 
     /// <summary>
-    /// 从「我的」页点某个收藏夹卡片: 切到收藏页并直接选中那个夹。
+    /// 按夹打开收藏页: 切过去并直接选中那个夹(供"按夹跳转"的入口使用)。
     /// 与 NavigateToRegion 同一套路 —— 不新开窗口, 走导航栏那套切页。
     /// </summary>
     public void OpenFavFolder(FavFolder folder)
@@ -905,6 +998,8 @@ public partial class MainWindow : FluentWindow
 
     private void OnDynamicDetailKeyDown(object sender, KeyEventArgs e)
     {
+        // 设置页录制快捷键时, Esc 用于取消录制, 不能顺手把动态详情关掉
+        if (ShortcutBox.IsAnyCapturing) return;
         if (e.Key != Key.Escape || !_dynamicDetailOpen) return;
         if (DynamicDetailHost.IsComposerOpen)
         {

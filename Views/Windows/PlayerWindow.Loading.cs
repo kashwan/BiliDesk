@@ -86,6 +86,10 @@ public partial class PlayerWindow : FluentWindow
         _currentBvid = bvid;
         _isLocalPlayback = false;
         _isLive = false;
+        // ★ 诊断: 记下"正在放哪一路" —— 冻结现场的快照里要有它
+        //   (见 Services/DiagnosticsState)。
+        DiagnosticsState.Set("播放中视频", bvid);
+        DiagnosticsState.Note($"开始播放 {bvid}");
         SetBangumiPlaylist(bangumi);
         ResetForNewMedia();
         _ = LoadVideoAsync();
@@ -910,6 +914,10 @@ public partial class PlayerWindow : FluentWindow
         // 表情墙也是"上一条视频"的状态: 换片后还挂着表情面板会让人以为输入框里已经有内容
         CommentEmoteWall?.Close();
         _postingComment = false;
+        // 直播弹幕草稿与发送闸同属"上一条片源"(2026-11-28): 换片/换直播间不能把
+        // 上一间没发出去的话带过去, 也不能让新房间继承一个永远不释放的"发送中"状态。
+        _sendingLiveDanmaku = false;
+        LiveDanmakuDraft?.Clear();
         // 进度上报的节流状态也要重置, 让新视频的第一条云端历史能立刻落地
         Svc.HistorySync.Reset();
         // 直播弹幕连接属于"上一条片源": 换片/换直播间必须立即停。
@@ -979,10 +987,10 @@ public partial class PlayerWindow : FluentWindow
         //   两个标记都设成"丢弃配对的松手"; 下一次按下(KeyDown / MouseDown)会自动复位。
         _videoGestureActive = false;
         _suppressSingleClick = false;
-        // 键盘长按 → 的 3x 与计时器同属"这一次手势": 换片必须停掉并复位
-        _rightKeyTimer?.Stop();
-        _rightKeyFast = false;
-        _rightKeyDiscardUp = true;
+        // 键盘长按快进的倍速与计时器同属"这一次手势": 换片必须停掉并复位
+        _forwardKeyTimer?.Stop();
+        _forwardKeyFast = false;
+        _forwardKeyArmed = false;
         // 长按点赞三连的"抑制窗口"与在途闸属于上一片: 不清的话换片后 1.5 秒内的第一次
         // 点赞会被 OnLikeClick 当成"长按三连松手那次 Click"吞掉(见 OnLikeClick)。
         _tripleComboAt = 0;
@@ -1166,6 +1174,8 @@ public partial class PlayerWindow : FluentWindow
         nameof(_lastLaneCalcHeight),
         // 直播聊天列表的"跟随底部"开关: 每次换片源/换直播间都重新开始跟随
         nameof(_liveChatAutoScroll),
+        // 直播弹幕发送的在途闸(2026-11-28): 换片必须放开, 否则新直播间会一直"发送中"。
+        nameof(_sendingLiveDanmaku),
         // 直播弹幕的时钟模式与聊天批次计数(2026-11-17): 都属于"这一路片源"——
         //   _dmClockLive 不清的话切回点播后弹幕时钟不再校准(见 StopLiveDanmaku);
         //   _liveChatTickCounter 不清会让新直播间从一个随机的批次相位开始。
@@ -1181,11 +1191,12 @@ public partial class PlayerWindow : FluentWindow
         nameof(_isFastForwarding), nameof(_rateBeforeFastForward),
         // 长按快进的目标倍速(2026-11-03): 同属"这一次长按"的瞬时态, 换片必须复位。
         nameof(_fastForwardTarget),
-        // 键盘长按 → 的倍速标记(2026-11-12): 属于"这一次按键", 换片必须复位。
-        nameof(_rightKeyFast),
-        // 失焦作废后"吞掉这一次松手"的标记(2026-11-21): 同属这一次按键的瞬时态,
-        //   换片必须清 —— 否则新片的第一次 → 松手会被误吞(短按不跳)。
-        nameof(_rightKeyDiscardUp),
+        // 键盘长按"快进"键的倍速标记(2026-11-12; 2026-11-28 快捷键可配置后改名):
+        // 属于"这一次按键", 换片必须复位。
+        nameof(_forwardKeyFast),
+        // "这一次按下仍归快进管"的标记: 同属这一次按键的瞬时态, 换片必须清 ——
+        // 否则新片的第一次快进键松手会被误判成短按(或反过来吞掉应有的跳转)。
+        nameof(_forwardKeyArmed),
         nameof(_commentTotal),
         // 评论翻页(2026-11-08, issue #55): 游标/是否还有下一页/在途闸/失败标记都属于"这一片"
         nameof(_commentNext), nameof(_commentHasMore),
@@ -1310,6 +1321,9 @@ public partial class PlayerWindow : FluentWindow
         // 加载链代次与闸门: 换片时**故意不清** —— 新一次加载会自己 ++_loadGen 让旧的作废;
         //   清成 0 反而可能让旧任务的代次与新任务撞上。闸门由 LoadVideoAsync 的 finally 收敛。
         nameof(_loadGen), nameof(_loadRunning),
+        // 本地文件章节的读取代次(2026-11-28): 同 _loadGen —— 窗口级单调计数, 换片不清;
+        //   每次打开本地文件自己 ++, 后台读盘回来时用它判断"用户是不是已经换片了"。
+        nameof(_localChapterGen),
         // Media input 代次(2026-11-19): 窗口级**单调**计数, 换片不清 —— 它的语义正是
         // "换片要作废旧事件", 清回同一个值反而会让旧事件重新撞上。
         nameof(_mediaEpoch),
@@ -1456,6 +1470,12 @@ public partial class PlayerWindow : FluentWindow
 
             // 2026-11-22(mpv): 本地文件直接作为 Url 交给引擎, 不需要 Media/Uri 包装
             _lastPlayUrl = path;
+            // 本地缓存可能由下载器写入了 chpl 章节: 直接读文件, 不请求接口。
+            // 老缓存没有章节时返回 false, _chapters 保持空, 行为与以前一致。
+            // ★ 读盘放后台线程: moov 上限 64MB, 在 UI 线程同步读会卡住界面并推迟起播。
+            //   读完再回 UI 线程落地, 用 _localChapterGen 作废"用户已经换片"的结果。
+            var chapterGen = ++_localChapterGen;
+            _ = LoadLocalChaptersAsync(path, chapterGen);
             // 本地文件是单文件源, seek 一次到位(与 durl 合流单流同性质)
             _isReliableSeekSource = true;
             PlayMedia(BuildMedia(path, null));
@@ -1463,6 +1483,35 @@ public partial class PlayerWindow : FluentWindow
         catch (Exception ex)
         {
             if (!_closing) ShowFail("打开本地文件失败: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 后台读本地文件的 chpl 章节, 读完回 UI 线程落地。
+    ///
+    /// ★ 为什么不在 <see cref="LoadLocalFile"/> 里同步读: 那是 UI 线程, moov 上限 64MB,
+    ///   同步读既卡界面又推迟起播(本地文件是"打开就能看"的场景)。
+    /// ★ 为什么用代次而不是"文件还在不在": 用户在这几十毫秒里可能已经换了片或关了窗口 ——
+    ///   老章节盖到新片上就是串台(与字幕/在线章节同款防串闸)。
+    /// </summary>
+    private async Task LoadLocalChaptersAsync(string path, int gen)
+    {
+        try
+        {
+            // Task.Run 里读盘; await 之后回到 UI 线程(捕获了 UI 同步上下文)。
+            var read = await Task.Run(() =>
+            {
+                var ok = Mp4ChapterReader.TryRead(path, out var list, out _);
+                return (ok, list);
+            });
+            if (!read.ok || read.list.Count == 0) return;
+
+            if (_closing || gen != _localChapterGen || !_isLocalPlayback) return;
+            ApplyChapters(read.list);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("[Player] 读取本地章节失败: " + ex.Message + "\n");
         }
     }
 

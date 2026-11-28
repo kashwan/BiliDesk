@@ -351,9 +351,10 @@ public partial class ApiClient
     //    免得以后有人改全局默认值时顺手把这一处带崩。)
 
     /// <summary>
-    /// 某个用户关注的番剧("我的追番")。
+    /// 某个用户关注的番剧 / 追剧, **带权威总数**（「我的订阅」页的页码与 tab 条数要用）。
     ///
     /// 接口: /x/space/bangumi/follow/list —— type: 1 追番 / 2 追剧(电视剧、纪录片)。
+    /// 两类的数据形状完全一致, 只是 type 不同; 2026-11-27 实测 type=2 同样返回 code=0 + total。
     ///
     /// ★ 为什么不是网上常见的 /x/v2/follow/seasons 或 /pgc/season/follow/list:
     ///   那两条 2026-10-11 实测**已经 404**(带登录 Cookie 也一样), 这个才是活的。
@@ -361,10 +362,10 @@ public partial class ApiClient
     ///
     /// ★ 需要登录: 匿名访问私有设置的用户会拿到 53013。调用方应先判 <c>SessionManager.HasLogin</c>。
     /// </summary>
-    public async Task<(bool ok, string? err, List<BangumiItem>? items)>
-        GetMyBangumiAsync(long vmid, int pn = 1, int ps = 30)
+    public async Task<(bool ok, string? err, List<BangumiItem>? items, int total)>
+        GetMyBangumiPageAsync(long vmid, int type, int pn = 1, int ps = 20)
     {
-        if (vmid <= 0) return (false, "用户 ID 无效", null);
+        if (vmid <= 0) return (false, "用户 ID 无效", null, 0);
         try
         {
             var (code, msg, data) = await GetJsonAsync(
@@ -374,14 +375,16 @@ public partial class ApiClient
                     ["vmid"] = vmid.ToString(),
                     ["pn"] = Math.Max(1, pn).ToString(),
                     ["ps"] = Math.Clamp(ps, 1, 100).ToString(),
-                    ["type"] = "1" // 只要番剧; 追剧(影视)不在追番页里
+                    ["type"] = type == 2 ? "2" : "1"
                 },
                 referer: "https://www.bilibili.com/");
 
-            if (code != 0 || data == null) return (false, msg ?? $"加载追番失败({code})", null);
+            if (code != 0 || data == null) return (false, msg ?? $"加载订阅失败({code})", null, 0);
+
+            var total = GetInt(data.Value, "total");
             if (!data.Value.TryGetProperty("list", out var list) ||
                 list.ValueKind != JsonValueKind.Array)
-                return (true, null, new List<BangumiItem>());
+                return (true, null, new List<BangumiItem>(), total);
 
             var items = new List<BangumiItem>();
             foreach (var el in list.EnumerateArray())
@@ -390,13 +393,24 @@ public partial class ApiClient
                 var item = ParseBangumiItem(el);
                 if (item != null) items.Add(item);
             }
-            return (true, null, items);
+            return (true, null, items, total);
         }
         catch (Exception ex)
         {
             App.ReportError(ex);
-            return (false, "加载追番失败: " + ex.Message, null);
+            return (false, "加载订阅失败: " + ex.Message, null, 0);
         }
+    }
+
+    /// <summary>
+    /// 旧的「我的追番」签名（首页追番栏 / <see cref="BangumiFollowCache"/> 用）:
+    /// 只要 type=1 的列表, 不关心总数。内部转调 <see cref="GetMyBangumiPageAsync"/>。
+    /// </summary>
+    public async Task<(bool ok, string? err, List<BangumiItem>? items)>
+        GetMyBangumiAsync(long vmid, int pn = 1, int ps = 30)
+    {
+        var (ok, err, items, _) = await GetMyBangumiPageAsync(vmid, 1, pn, ps);
+        return (ok, err, items);
     }
 
     /// <summary>
@@ -455,6 +469,71 @@ public partial class ApiClient
     }
 
     /// <summary>
+    /// PGC 索引(影视页的热播栏目, 2026-11-28 新增)。
+    ///
+    /// 接口: /pgc/season/index/result —— 与番剧推荐同一个端点, 靠 <paramref name="seasonType"/>
+    /// 选电影 / 电视剧 / 纪录片 / 综艺, 靠 <paramref name="order"/> 选排序。
+    ///
+    /// ★ order 取值(实测 + bilibili-API-collect):
+    ///   0 = 最近更新, 1 = 弹幕数, 2 = 播放数, 3 = 追番人数, 4 = 最高评分, 5 = 开播时间。
+    ///   影视页「正在热播」用 0, 「电影/电视剧/纪录片/综艺热播」用 2。
+    /// ★ season_type: 2 电影 / 3 纪录片 / 5 电视剧 / 7 综艺。
+    ///   (1 与 4 在旧注释里实测返回同一批, 但影视页用不到这两类。)
+    /// ★ 不需要登录, 也不需要 WBI; Referer 必须是 www.bilibili.com。
+    /// </summary>
+    public async Task<(bool ok, string? err, List<BangumiItem>? items, bool hasNext)>
+        GetPgcIndexAsync(int seasonType, int order, int pn = 1, int ps = 14)
+    {
+        try
+        {
+            var (code, msg, data) = await GetJsonAsync(
+                "https://api.bilibili.com/pgc/season/index/result",
+                new Dictionary<string, string>
+                {
+                    ["season_type"] = seasonType.ToString(),
+                    ["type"] = "0", // 0 = 综合热门(按 type 细分的分类不要)
+                    ["order"] = order.ToString(),
+                    ["sort"] = "0", // 0 = 降序
+                    ["page"] = Math.Max(1, pn).ToString(),
+                    ["ps"] = Math.Clamp(ps, 1, 50).ToString()
+                },
+                referer: "https://www.bilibili.com/");
+
+            if (code != 0 || data == null)
+                return (false, msg ?? $"加载影视内容失败({code})", null, false);
+            if (!data.Value.TryGetProperty("list", out var list) ||
+                list.ValueKind != JsonValueKind.Array)
+                return (true, null, new List<BangumiItem>(), false);
+
+            var items = new List<BangumiItem>();
+            var limit = Math.Clamp(ps, 1, 50);
+            foreach (var el in list.EnumerateArray())
+            {
+                if (el.ValueKind != JsonValueKind.Object) continue;
+                var item = ParseBangumiItem(el);
+                if (item == null) continue;
+                items.Add(item);
+                // ★ 实测这个接口会忽略 ps 一次给回 25 条(order=0/2 都一样)。
+                //   影视页每栏只要固定张数, 在这里就截断, 别把 25 张全铺到页面上。
+                if (items.Count >= limit) break;
+            }
+
+            // has_next 缺省时按"这一页是不是读满了"兜底(与番剧推荐同一套判据)
+            var hasNext = data.Value.TryGetProperty("has_next", out var hn)
+                && hn.ValueKind == JsonValueKind.Number
+                ? hn.GetInt32() == 1
+                : items.Count >= limit;
+
+            return (true, null, items, hasNext);
+        }
+        catch (Exception ex)
+        {
+            App.ReportError(ex);
+            return (false, "加载影视内容失败: " + ex.Message, null, false);
+        }
+    }
+
+    /// <summary>
     /// 番剧详情 + **选集列表**。
     ///
     /// 接口: /pgc/view/web/season —— 不需要登录(能拿到番剧的基本信息与分集表)。
@@ -494,11 +573,15 @@ public partial class ApiClient
 
             // 分类名在 show_season_type / type 上, 优先取能拿到名字的那个
             detail.SeasonTypeName = GetStr(res, "season_type_name").StripHtml();
+            detail.SeasonType = GetInt(res, "type");
+            if (detail.SeasonType <= 0) detail.SeasonType = GetInt(res, "show_season_type");
             if (string.IsNullOrEmpty(detail.SeasonTypeName))
             {
                 var st = TryObject(res, "show_season_type");
                 detail.SeasonTypeName = st is { } s ? GetStr(s, "name").StripHtml() : "";
             }
+            if (string.IsNullOrEmpty(detail.SeasonTypeName) && detail.SeasonType > 0)
+                detail.SeasonTypeName = BangumiItem.SeasonTypeNameOf(detail.SeasonType);
 
             if (TryObject(res, "rating") is { } rating)
             {
@@ -606,6 +689,16 @@ public partial class ApiClient
             Progress = GetStr(el, "progress").StripHtml(),
             Url = GetStr(el, "url")
         };
+
+        // ★ 影视索引接口把简介短句叫 subTitle(驼峰), 追番接口叫 subtitle(全小写)。
+        //   两个名字都认, 否则影视卡片标题下面永远是空的。
+        if (string.IsNullOrWhiteSpace(item.Subtitle))
+            item.Subtitle = GetStr(el, "subTitle").StripHtml();
+
+        // 评分: 影视索引会给 "9.6"; 追番列表通常没有。空串/0 都按"没有评分"处理。
+        var score = GetStr(el, "score").Trim();
+        if (score is "0" or "0.0") score = "";
+        item.Score = score;
 
         // total_count 缺失时退回 new_ep 的集号(番外/剧场版给的是 0)
         item.TotalCount = GetInt(el, "total_count");

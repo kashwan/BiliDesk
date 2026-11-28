@@ -159,12 +159,14 @@
             <StackPanel Margin="0,10,0,0"
                         Visibility="{Binding HasText, Converter={StaticResource BoolToVis}}">
                 <controls:LinkTextBlock x:Name="ContentTextBlock" SourceText="{Binding ContentText}"
+                                        Emotes="{Binding Emotes}"
                                         FontSize="14" LineHeight="22" TextWrapping="Wrap"
                                         Foreground="{DynamicResource TextPrimaryBrush}"
                                         MaxHeight="176" TextTrimming="CharacterEllipsis" />
                 <!-- ★ 展开态的 RichTextBox 不带 Text 绑定: 卡片收起时(绝大多数时候)不建 FlowDocument,
                      点「全文」时由 OnExpandClick 再灌文本 —— 一屏十几张卡, 每张都提前建文档太浪费。 -->
                 <controls:LinkText x:Name="ContentRichText"
+                                   Emotes="{Binding Emotes}"
                                    FontSize="14"
                                    Foreground="{DynamicResource TextPrimaryBrush}"
                                    Visibility="Collapsed" />
@@ -216,9 +218,12 @@
                        Cursor="Hand" MouseLeftButtonUp="OnArticleClick"
                        Visibility="{Binding ShowArticleTitle, Converter={StaticResource BoolToVis}}" />
 
-            <!-- ===== 图片网格(图文/专栏) ===== -->
+            <!-- ===== 图片网格(图文/专栏) =====
+                 ★ 专栏卡片点封面 = 进详情看全文; 图文卡片点图 = 大图预览(与 B 站一致)。 -->
             <controls:DynamicImageGrid Margin="0,12,0,0"
                                        ItemsSource="{Binding Images}"
+                                       ClickOpensDetail="{Binding IsArticle}"
+                                       DetailRequested="OnImageDetailRequested"
                                        Visibility="{Binding HasImages, Converter={StaticResource BoolToVis}}" />
 
             <!-- ===== 直播块 ===== -->
@@ -257,6 +262,7 @@
                                    VerticalAlignment="Center" />
                     </StackPanel>
                     <controls:LinkText Text="{Binding ContentText}" FontSize="13"
+                                       Emotes="{Binding Emotes}"
                                        Margin="0,6,0,0"
                                        Foreground="{DynamicResource TextPrimaryBrush}"
                                        Visibility="{Binding HasText, Converter={StaticResource BoolToVis}}" />

@@ -81,6 +81,10 @@ public partial class App : Application
             if (args.ExceptionObject is Exception ex) ReportError(ex);
         };
 
+        // 悬停提示默认要等 1000ms(系统 MouseHoverTime), 用户要求"出现得快一点"(2026-11-27)。
+        // 放在建窗口之前: 全局默认值一改, 之后创建的每一个 ToolTip 都按新延时走。
+        ToolTipTiming.Apply();
+
         // ★★★ 探针/测试宿主: 只提供 App.xaml 资源, 不跑真实启动流程。
         //   2026-11-17 修"agent 一执行任务就弹『找不到资源 assets/app.png』":
         //   探针在自己的 EXE 里 new App(), 入口程序集不是 BiliDesk —— 上面的兜底只记日志,
@@ -116,9 +120,16 @@ public partial class App : Application
         // 初始化数据目录与各项服务
         AppPaths.Init();
         Svc.Settings.Load();
+        // 快捷键覆盖项存在 settings.json 里, 读盘后要立刻建好生效映射 ——
+        // 漏了这一步的表现是"设置里明明改过键, 重启后又全变回默认"。
+        Svc.Shortcuts.Reload();
         // 列表屏蔽条件存在 settings.json 里, 必须在 Load 之后同步一次。
         // (FilterService 构造时也读, 这行是兜住"更早被 XAML 的 x:Static 提前实例化"的顺序意外)
         FilterService.Instance.Reload();
+        // ★ 崩溃转储: 按设置把能力落地(开启时装上进程内异常处理器 + 登记 LocalDumps,
+        //   关闭时卸掉)。放在这里是因为它依赖设置已读盘; 失败只记日志
+        //   (见 SettingsStore.ApplyCrashDumpSetting)。
+        Svc.Settings.ApplyCrashDumpSetting();
         Svc.Theme.Initialize();
         Svc.Session.Load();
         // 本机观看历史(history.json)已整体移除: 历史统一看 B 站账号的云端记录。
@@ -140,6 +151,17 @@ public partial class App : Application
         // 全局滚轮: "按设置的距离 + 缓动曲线滑过去" —— 引擎原生是逐格瞬移,
         // 观感一顿一顿的(2026-11-07 用户要求改成有滑动的曲线)。
         WheelScroll.Install();
+
+        // ★★★ UI 线程冻结看门狗(2026-11-28 新增)。
+        //   用户报"窗口冻住 → 进程消失", 而冻结中的 UI 线程跑不了任何异常处理器,
+        //   .NET 的兜底也在那个线程上 ⇒ errors.txt 里一个字都没有。
+        //   这个看门狗从**后台线程**去问 UI 线程"在吗", 累计等不到回复就认定冻结,
+        //   并当场把"当时卡在哪"(靠 DiagnosticsState 的操作标记)写进日志。
+        //   ★ 必须放在 Dispatcher 已就绪之后(构造时要用 Dispatcher), 也必须在
+        //   单实例闸门之后 —— 第二个实例不该再起一个看门狗。
+        Svc.FreezeWatchdog = new UiFreezeWatchdog(Dispatcher);
+        Svc.FreezeWatchdog.Start();
+        DiagnosticsState.Note("程序启动, 版本 " + AppVersion);
 
         // 顺带清理短视频的本地合流缓存(vcache)。
         // 平时每次合流完都会清一次, 这里再补一道: 用户如果从此不再看短视频,
@@ -335,11 +357,11 @@ public partial class App : Application
                 // 上限保护: errors.txt 只保留最近的错误(发布后没有任何清理它的途径,
                 // 无限追加会在装了几年后变成几十 MB 的"古董日志", 反而没人看)。
                 // ★ 2026-11-07 改为轮转而不是整份删除: 旧版超 1MB 直接 f.Delete(),
-                //   正要排查的问题现场说没就没; 挪成 errors.old, 现场永远保留最近两份。
+                //   正要排查的问题现场说没就没; 挪成 errors.txt.old, 现场永远保留最近两份。
                 var f = new FileInfo(AppPaths.LogFile);
                 if (f.Exists && f.Length > 1024 * 1024)
                 {
-                    var old = AppPaths.LogFile + ".old";
+                    var old = AppPaths.RotatedLogFile;
                     try { f.MoveTo(old, overwrite: true); }
                     catch { try { f.Delete(); } catch { /* 挪不掉也删不掉, 追加继续 */ } }
                 }
@@ -398,7 +420,7 @@ public partial class App : Application
         return true;
     }
 
-    /// <summary>进程退出: 释放共享的 LibVLC 原生实例(窗口关闭时不释放, 避免反复创建销毁)</summary>
+    /// <summary>进程退出: 停止界面看门狗等后台服务</summary>
     protected override void OnExit(ExitEventArgs e)
     {
         IsExiting = true;
@@ -411,7 +433,9 @@ public partial class App : Application
         Svc.Settings.Flush();
         // 托盘图标先摘: 不摘的话 Explorer 会缓存一个"幽灵图标"直到鼠标划过
         TrayService.Instance.Dispose();
-
+        // 看门狗的探测线程是后台线程(不会拦退出), 但显式停掉更干净:
+        // 退出时 Dispatcher 已经在停, 探测线程会一直等一个永远不会来的派发。
+        Svc.FreezeWatchdog?.Stop();
         base.OnExit(e);
     }
 }
