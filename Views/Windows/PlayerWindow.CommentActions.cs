@@ -19,6 +19,7 @@ using System.Windows.Threading;
 using BiliDesk.Helpers;
 using BiliDesk.Models;
 using BiliDesk.Services;
+using BiliDesk.Views.Windows;
 
 namespace BiliDesk.Views;
 

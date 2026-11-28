@@ -208,11 +208,10 @@ public static class DiagnosticReportService
         sb.AppendLine();
 
         sb.AppendLine("== 播放相关设置 ==");
-        AppendSetting(sb, "视频输出模块", () => Svc.Settings.VideoOutputMode.ToString());
-        AppendSetting(sb, "硬件解码", () => Svc.Settings.HardwareDecodingEnabled ? "开" : "关");
+        AppendSetting(sb, "播放内核", () => "mpv (libmpv)");
+        AppendSetting(sb, "硬件解码", () => Svc.Settings.HwdecMode.ToString());
         AppendSetting(sb, "网络缓冲(ms)", () => Svc.Settings.NetworkCachingMs.ToString(CultureInfo.InvariantCulture));
         AppendSetting(sb, "缓冲策略", () => Svc.Settings.AutoBufferPolicy ? "自动" : "手动");
-        AppendSetting(sb, "音频重采样", () => Svc.Settings.AudioResamplerMode.ToString());
         AppendSetting(sb, "首选音质", () => Svc.Settings.PreferredAudioTier.ToString());
         AppendSetting(sb, "默认画质", () => Svc.Settings.PreferredQualityQn.ToString(CultureInfo.InvariantCulture));
         AppendSetting(sb, "自动连播", () => Svc.Settings.AutoPlayNext ? "开" : "关");
@@ -221,7 +220,7 @@ public static class DiagnosticReportService
         sb.AppendLine("== 诊断开关 ==");
         sb.AppendLine("崩溃转储: " + (CrashDumpService.IsEnabled() ? "已开启" : "未开启"));
         sb.AppendLine("转储目录: " + RedactUserProfile(CrashDumpService.CurrentDumpDirectory() ?? "(无)"));
-        sb.AppendLine("libvlc 原生日志: " + (Environment.GetEnvironmentVariable("BILIDESK_VLC_DEBUG") == "1" ? "开" : "关"));
+        sb.AppendLine("mpv 原生日志: " + (Environment.GetEnvironmentVariable("BILIDESK_MPV_DEBUG") == "1" ? "开" : "关"));
         sb.AppendLine();
 
         // ★ 冻结统计: 用户报"卡住"时, 这是最直接的证据 ——
